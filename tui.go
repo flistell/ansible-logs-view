@@ -62,12 +62,21 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 
 	str := fmt.Sprintf("%d. %s", i.task.ID, i.task.Description)
 	
-	// Truncate the string to fit the width
+	// Truncate the string to fit the width. Guard against very small
+	// terminal widths to avoid negative slice indices (which panic).
 	width := lipgloss.Width(str)
-	if width > m.Width()-10 {
+	// Reserve space for status and selection prefix; compute a safe max
+	// rune count for truncation.
+	reserve := 13
+	maxWidth := m.Width() - reserve
+	if width > maxWidth {
 		runes := []rune(str)
-		if len(runes) > m.Width()-13 {
-			str = string(runes[:m.Width()-13]) + "..."
+		// If terminal is too narrow, avoid negative or zero slice bounds.
+		if maxWidth <= 0 {
+			// Fallback to an ellipsis only — there's no space for content.
+			str = "..."
+		} else if len(runes) > maxWidth {
+			str = string(runes[:maxWidth]) + "..."
 		}
 	}
 
