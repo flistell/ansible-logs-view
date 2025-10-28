@@ -19,7 +19,8 @@ A terminal user interface (TUI) for viewing Ansible log files, built with Go and
 
 2. Build the application:
    ```
-   go build
+   # build the CLI binary from the command directory
+   go build ./cmd/ansible-logs-tui
    ```
 
 ## Usage
@@ -51,9 +52,9 @@ Run the application with an Ansible log file as an argument:
 
 ### Building
 
-To build the application:
+To build the CLI binary (recommended layout):
 ```
-go build
+go build ./cmd/ansible-logs-tui
 ```
 
 ### Running Tests
