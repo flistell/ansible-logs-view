@@ -5,9 +5,9 @@ A terminal user interface (TUI) for viewing Ansible log files, built with Go and
 ## Features
 
 - Parse Ansible log files to extract tasks
-- Display tasks in a list with their status (ok, changed, skipping, failed)
+- Display tasks in a tree view with their status (ok, changed, skipping, failed)
 - Navigate through tasks using keyboard controls
-- View detailed task information
+- Expand/collapse tasks to view detailed information without changing panels
 
 ## Installation
 
@@ -19,8 +19,7 @@ A terminal user interface (TUI) for viewing Ansible log files, built with Go and
 
 2. Build the application:
    ```
-   # build the CLI binary from the command directory
-   go build ./cmd/ansible-logs-tui
+   go build
    ```
 
 ## Usage
@@ -33,6 +32,7 @@ Run the application with an Ansible log file as an argument:
 ### Keyboard Controls
 
 - `↑` / `↓` : Navigate through tasks
+- `Enter` / `Space` : Expand/collapse selected task
 - `q` / `Esc` / `Ctrl+C` : Quit the application
 
 ## Development
@@ -52,9 +52,9 @@ Run the application with an Ansible log file as an argument:
 
 ### Building
 
-To build the CLI binary (recommended layout):
+To build the application:
 ```
-go build ./cmd/ansible-logs-tui
+go build
 ```
 
 ### Running Tests

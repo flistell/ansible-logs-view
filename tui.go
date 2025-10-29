@@ -2,10 +2,8 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -28,123 +26,39 @@ var (
 	statusFailedStyle = statusStyle.Copy().Background(lipgloss.Color("#FF0000"))
 	statusUnknownStyle = statusStyle.Copy().Background(lipgloss.Color("#888888"))
 	
-	detailTitleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFFDF5")).
-				Background(lipgloss.Color("#25A065")).
-				Padding(0, 1).
-				MarginBottom(1)
-				
-	detailStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#25A065")).
-			Padding(1, 2)
-)
-
-type TaskItem struct {
-	task Task
-}
-
-func (t TaskItem) FilterValue() string {
-	return t.task.Description
-}
-
-type itemDelegate struct{}
-
-func (d itemDelegate) Height() int                             { return 1 }
-func (d itemDelegate) Spacing() int                            { return 0 }
-func (d itemDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
-
-func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	i, ok := listItem.(TaskItem)
-	if !ok {
-		return
-	}
-
-	str := fmt.Sprintf("%d. %s", i.task.ID, i.task.Description)
+	// Styles for tree view
+	expandedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#25A065"))
+	collapsedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500"))
 	
-	// Truncate the string to fit the width. Guard against very small
-	// terminal widths to avoid negative slice indices (which panic).
-	width := lipgloss.Width(str)
-	// Reserve space for status and selection prefix; compute a safe max
-	// rune count for truncation.
-	reserve := 13
-	maxWidth := m.Width() - reserve
-	if width > maxWidth {
-		runes := []rune(str)
-		// If terminal is too narrow, avoid negative or zero slice bounds.
-		if maxWidth <= 0 {
-			// Fallback to an ellipsis only — there's no space for content.
-			str = "..."
-		} else if len(runes) > maxWidth {
-			str = string(runes[:maxWidth]) + "..."
-		}
-	}
-
-	// Style based on status
-	var statusStyle lipgloss.Style
-	switch i.task.Status {
-	case "ok":
-		statusStyle = statusOkStyle
-	case "changed":
-		statusStyle = statusChangedStyle
-	case "skipping":
-		statusStyle = statusSkippingStyle
-	case "failed":
-		statusStyle = statusFailedStyle
-	default:
-		statusStyle = statusUnknownStyle
-	}
-
-	// Highlight if selected
-	if index == m.Index() {
-		str = "> " + str
-	} else {
-		str = "  " + str
-	}
-
-	// Add status indicator
-	statusStr := statusStyle.Render(strings.ToUpper(i.task.Status))
-
-	fmt.Fprintf(w, "%s %s", str, statusStr)
-}
-
-type viewState int
-
-const (
-	listView viewState = iota
-	detailView
+	// Detail styles within tree items
+	detailStyle = lipgloss.NewStyle().
+			PaddingLeft(4).
+			Foreground(lipgloss.Color("#AAAAAA"))
+			
+	selectedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFDF5")).
+			Background(lipgloss.Color("#25A065"))
 )
 
 type model struct {
-	list      list.Model
 	tasks     []Task
+	selected  int
+	expanded  map[int]bool // Track which tasks are expanded
+	width     int
+	height    int
 	loaded    bool
 	err       error
 	quitting  bool
-	viewState viewState
-	selected  int
 }
 
 func newModel(tasks []Task) model {
-	// Convert tasks to TaskItems
-	items := make([]list.Item, len(tasks))
-	for i, task := range tasks {
-		items[i] = TaskItem{task: task}
-	}
-
-	// Create list
-	l := list.New(items, itemDelegate{}, 0, 0)
-	l.Title = "Ansible Tasks"
-	l.SetShowStatusBar(true)
-	l.SetFilteringEnabled(false)
-	l.Styles.Title = titleStyle
-
 	return model{
-		list:      l,
-		tasks:     tasks,
-		loaded:    true,
-		viewState: listView,
-		selected:  0,
+		tasks:    tasks,
+		selected: 0,
+		expanded: make(map[int]bool),
+		width:    80,
+		height:   24,
+		loaded:   true,
 	}
 }
 
@@ -153,49 +67,29 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch m.viewState {
-	case listView:
-		return m.updateListView(msg)
-	case detailView:
-		return m.updateDetailView(msg)
-	}
-	return m, nil
-}
-
-func (m model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
-		case "enter":
-			m.viewState = detailView
-			m.selected = m.list.Index()
-			return m, nil
+		case "up", "k":
+			if m.selected > 0 {
+				m.selected--
+			}
+		case "down", "j":
+			if m.selected < len(m.tasks)-1 {
+				m.selected++
+			}
+		case "enter", " ":
+			// Toggle expansion of selected item
+			m.expanded[m.selected] = !m.expanded[m.selected]
 		}
 	case tea.WindowSizeMsg:
-		h, v := appStyle.GetFrameSize()
-		m.list.SetSize(msg.Width-h, msg.Height-v)
+		m.width = msg.Width
+		m.height = msg.Height
 	}
-
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
-}
-
-func (m model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "esc", "ctrl+c":
-			m.quitting = true
-			return m, tea.Quit
-		case "enter", "backspace":
-			m.viewState = listView
-			return m, nil
-		}
-	}
+	
 	return m, nil
 }
 
@@ -204,16 +98,6 @@ func (m model) View() string {
 		return ""
 	}
 
-	switch m.viewState {
-	case listView:
-		return m.listView()
-	case detailView:
-		return m.detailView()
-	}
-	return ""
-}
-
-func (m model) listView() string {
 	if !m.loaded {
 		return appStyle.Render("Loading...")
 	}
@@ -222,24 +106,76 @@ func (m model) listView() string {
 		return appStyle.Render(fmt.Sprintf("Error: %v", m.err))
 	}
 
-	return appStyle.Render(m.list.View())
-}
-
-func (m model) detailView() string {
-	if m.selected >= len(m.tasks) {
-		return appStyle.Render("Invalid selection")
+	// Build the view
+	var b strings.Builder
+	
+	// Title
+	b.WriteString(titleStyle.Render("Ansible Tasks") + "\n\n")
+	
+	// Calculate visible items based on height
+	visibleCount := m.height - 5 // Leave room for title and padding
+	
+	// Render tasks
+	for i, task := range m.tasks {
+		if i >= visibleCount {
+			b.WriteString(fmt.Sprintf("... and %d more tasks\n", len(m.tasks)-visibleCount))
+			break
+		}
+		
+		// Format: "TASK NUMBER. TASK TITLE. TASK STATUS"
+		title := fmt.Sprintf("%d. %s", task.ID, task.Description)
+		status := strings.ToUpper(task.Status)
+		
+		// Style based on status
+		var statusStyle lipgloss.Style
+		switch task.Status {
+		case "ok":
+			statusStyle = statusOkStyle
+		case "changed":
+			statusStyle = statusChangedStyle
+		case "skipping":
+			statusStyle = statusSkippingStyle
+		case "failed":
+			statusStyle = statusFailedStyle
+		default:
+			statusStyle = statusUnknownStyle
+		}
+		
+		statusStr := statusStyle.Render(status)
+		
+		// Add expansion indicator
+		var indicator string
+		if m.expanded[i] {
+			indicator = expandedStyle.Render("▼")
+		} else {
+			indicator = collapsedStyle.Render("▶")
+		}
+		
+		// Highlight if selected
+		var line string
+		if i == m.selected {
+			line = selectedStyle.Render(fmt.Sprintf("> %s %s %s", indicator, title, statusStr))
+		} else {
+			line = fmt.Sprintf("  %s %s %s", indicator, title, statusStr)
+		}
+		
+		b.WriteString(line + "\n")
+		
+		// If expanded, show details
+		if m.expanded[i] {
+			details := fmt.Sprintf("Host: %s\nPath: %s\nStart Time: %s\nStatus: %s", 
+				task.Host, 
+				task.Path, 
+				task.StartTime.Format("2006-01-02 15:04:05"), 
+				task.Status)
+			
+			indentedDetails := detailStyle.Render(details)
+			b.WriteString(indentedDetails + "\n")
+		}
 	}
 	
-	task := m.tasks[m.selected]
+	// Instructions
+	b.WriteString("\n↑/↓: Navigate • Enter: Expand/Collapse • q/Esc/Ctrl+C: Quit")
 	
-	// Create detail view
-	title := detailTitleStyle.Render(fmt.Sprintf("Task #%d: %s", task.ID, task.Description))
-	status := fmt.Sprintf("Status: %s", task.Status)
-	host := fmt.Sprintf("Host: %s", task.Host)
-	path := fmt.Sprintf("Path: %s", task.Path)
-	startTime := fmt.Sprintf("Start Time: %s", task.StartTime.Format("2006-01-02 15:04:05"))
-	
-	content := fmt.Sprintf("%s\n%s\n%s\n%s\n%s", title, status, host, path, startTime)
-	
-	return appStyle.Render(detailStyle.Render(content) + "\n\nPress Enter or Backspace to return to list")
+	return appStyle.Render(b.String())
 }
