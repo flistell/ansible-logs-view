@@ -38,6 +38,18 @@ var (
 	selectedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFDF5")).
 			Background(lipgloss.Color("#25A065"))
+			
+	// Diff panel styles
+	diffPanelStyle = lipgloss.NewStyle().
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#25A065")).
+			Padding(1, 2)
+			
+	diffTitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFDF5")).
+			Background(lipgloss.Color("#25A065")).
+			Padding(0, 1).
+			MarginBottom(1)
 )
 
 type model struct {
@@ -113,12 +125,16 @@ func (m model) View() string {
 	b.WriteString(titleStyle.Render("Ansible Tasks") + "\n\n")
 	
 	// Calculate visible items based on height
-	visibleCount := m.height - 5 // Leave room for title and padding
+	// Reserve space for diff panel (1/3 of height) and instructions
+	listHeight := m.height - 10 // Leave room for title, padding, and instructions
+	if m.expanded[m.selected] {
+		listHeight = m.height/3*2 - 5 // Use 2/3 for task list when diff is shown
+	}
 	
 	// Render tasks
 	for i, task := range m.tasks {
-		if i >= visibleCount {
-			b.WriteString(fmt.Sprintf("... and %d more tasks\n", len(m.tasks)-visibleCount))
+		if i >= listHeight {
+			b.WriteString(fmt.Sprintf("... and %d more tasks\n", len(m.tasks)-listHeight))
 			break
 		}
 		
@@ -174,8 +190,38 @@ func (m model) View() string {
 		}
 	}
 	
+	// Show diff panel if selected task is expanded and has diff
+	if m.expanded[m.selected] && m.selected < len(m.tasks) && m.tasks[m.selected].Diff != "" {
+		b.WriteString("\n" + m.renderDiffPanel(m.tasks[m.selected]) + "\n")
+	}
+	
 	// Instructions
 	b.WriteString("\n↑/↓: Navigate • Enter: Expand/Collapse • q/Esc/Ctrl+C: Quit")
 	
 	return appStyle.Render(b.String())
+}
+
+func (m model) renderDiffPanel(task Task) string {
+	if task.Diff == "" {
+		return ""
+	}
+	
+	// Create diff panel
+	title := diffTitleStyle.Render(fmt.Sprintf("Diff for Task #%d: %s", task.ID, task.Description))
+	
+	// Limit diff content to fit panel
+	maxLines := m.height/3 - 5 // Use 1/3 of height for diff panel
+	diffLines := strings.Split(task.Diff, "\n")
+	
+	if len(diffLines) > maxLines {
+		// Show first maxLines-1 lines and add "..." indicator
+		diffLines = diffLines[:maxLines-1]
+		diffLines = append(diffLines, "...")
+	}
+	
+	diffContent := strings.Join(diffLines, "\n")
+	
+	content := fmt.Sprintf("%s\n%s", title, diffContent)
+	
+	return diffPanelStyle.Render(content)
 }

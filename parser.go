@@ -44,7 +44,10 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 	changedRegex := regexp.MustCompile(`^changed: \[(.*?)\]`)
 	skippingRegex := regexp.MustCompile(`^skipping: \[(.*?)\]`)
 	failedRegex := regexp.MustCompile(`^failed: \[(.*?)\]`)
-
+	
+	// Diff regexes
+	diffStartRegex := regexp.MustCompile(`^--- before:`)
+	
 	// Map month names to numbers for parsing
 	monthMap := map[string]string{
 		"January": "01", "February": "02", "March": "03", "April": "04",
@@ -52,18 +55,67 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 		"September": "09", "October": "10", "November": "11", "December": "12",
 	}
 
+	// Variables for diff parsing
+	inDiffSection := false
+	var diffLines []string
+
 	for scanner.Scan() {
 		line := scanner.Text()
 
+		// Check if we're entering a diff section
+		if diffStartRegex.MatchString(line) {
+			inDiffSection = true
+			diffLines = []string{line}
+			continue
+		}
+		
+		// If we're in a diff section, collect lines until we hit a blank line or task separator
+		if inDiffSection {
+			// End of diff section when we hit a blank line, task separator, or status line
+			if line == "" || strings.HasPrefix(line, "TASK [") || 
+			   strings.HasPrefix(line, "ok:") || strings.HasPrefix(line, "changed:") ||
+			   strings.HasPrefix(line, "skipping:") || strings.HasPrefix(line, "failed:") {
+				// Save the diff to the current task if it exists
+				if currentTask != nil && len(diffLines) > 0 {
+					if currentTask.Diff != "" {
+						currentTask.Diff += "\n" + strings.Join(diffLines, "\n")
+					} else {
+						currentTask.Diff = strings.Join(diffLines, "\n")
+					}
+				}
+				inDiffSection = false
+				diffLines = nil
+				
+				// Continue with normal processing if this is a new task
+				if strings.HasPrefix(line, "TASK [") {
+					// Process the task line
+					if currentTask != nil {
+						p.tasks = append(p.tasks, *currentTask)
+					}
+					
+					currentTask = &Task{
+						ID:          taskID,
+						Description: strings.TrimSpace(taskRegex.FindStringSubmatch(line)[1]),
+						Status:      "unknown", // Default status
+					}
+					taskID++
+					continue
+				}
+				continue
+			}
+			diffLines = append(diffLines, line)
+			continue
+		}
+
 		// Match task header
-		if matches := taskRegex.FindStringSubmatch(line); len(matches) > 1 {
+		if strings.HasPrefix(line, "TASK [") {
 			if currentTask != nil {
 				p.tasks = append(p.tasks, *currentTask)
 			}
 			
 			currentTask = &Task{
 				ID:          taskID,
-				Description: strings.TrimSpace(matches[1]),
+				Description: strings.TrimSpace(taskRegex.FindStringSubmatch(line)[1]),
 				Status:      "unknown", // Default status
 			}
 			taskID++
@@ -140,6 +192,14 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 
 	// Add the last task if it exists
 	if currentTask != nil {
+		// Add any remaining diff content
+		if len(diffLines) > 0 {
+			if currentTask.Diff != "" {
+				currentTask.Diff += "\n" + strings.Join(diffLines, "\n")
+			} else {
+				currentTask.Diff = strings.Join(diffLines, "\n")
+			}
+		}
 		p.tasks = append(p.tasks, *currentTask)
 	}
 
