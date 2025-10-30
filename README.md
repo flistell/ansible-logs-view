@@ -11,6 +11,10 @@ A terminal user interface (TUI) for viewing and analyzing Ansible log files, bui
 - Navigate through tasks using keyboard controls
 - Expand/collapse tasks to view detailed information without changing panels
 - View full raw task text in a separate details panel when a task is expanded
+- Details panel height fixed to 1/3 of the screen
+- Details panel width fixed to full screen width
+- Raw text content in details panel wraps if lines are too long
+- Details panel is scrollable with PgUp/PgDn keys
 - Color-coded status indicators for quick visual identification
 - Filter tasks by description, status, date, host, path, or diff content
 - Debug logging of task structure to debug.log file
@@ -39,6 +43,7 @@ Run the application with an Ansible log file as an argument:
 
 - `↑` / `↓` : Navigate through tasks
 - `Enter` / `Space` : Expand/collapse selected task and show full raw task text in separate panel
+- `PgUp` / `PgDn` : Scroll details panel when visible
 - `g` : Go to the top of the task list
 - `G` : Go to the bottom of the task list
 - `/` : Toggle filter input
@@ -55,8 +60,9 @@ Run the application with an Ansible log file as an argument:
 
 1. Navigate to a task using arrow keys
 2. Press `Enter` or `Space` to expand the selected task
-3. View full raw task text in the separate details panel at the bottom
-4. Press `Enter` or `Space` again to collapse the task and hide details panel
+3. View full raw task text in the separate details panel at the bottom (fixed to 1/3 of screen height)
+4. Use `PgUp`/`PgDn` to scroll through long content in the details panel
+5. Press `Enter` or `Space` again to collapse the task and hide details panel
 
 ### Debug Logging
 
