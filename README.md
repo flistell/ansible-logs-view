@@ -10,9 +10,10 @@ A terminal user interface (TUI) for viewing and analyzing Ansible log files, bui
 - Display tasks in a scrollable list with their status (ok, changed, skipping, failed)
 - Navigate through tasks using keyboard controls
 - Expand/collapse tasks to view detailed information without changing panels
-- View diff information for tasks that modify files in a separate panel
+- View full raw task text in a separate details panel when a task is expanded
 - Color-coded status indicators for quick visual identification
 - Filter tasks by description, status, date, host, path, or diff content
+- Debug logging of task structure to debug.log file
 
 ## Installation
 
@@ -37,7 +38,7 @@ Run the application with an Ansible log file as an argument:
 ### Keyboard Controls
 
 - `↑` / `↓` : Navigate through tasks
-- `Enter` / `Space` : Expand/collapse selected task
+- `Enter` / `Space` : Expand/collapse selected task and show full raw task text in separate panel
 - `g` : Go to the top of the task list
 - `G` : Go to the bottom of the task list
 - `/` : Toggle filter input
@@ -54,9 +55,20 @@ Run the application with an Ansible log file as an argument:
 
 1. Navigate to a task using arrow keys
 2. Press `Enter` or `Space` to expand the selected task
-3. View detailed task information in the expanded view
-4. If the task contains diff information, it will automatically display in the bottom panel
-5. Press `Enter` or `Space` again to collapse the task
+3. View full raw task text in the separate details panel at the bottom
+4. Press `Enter` or `Space` again to collapse the task and hide details panel
+
+### Debug Logging
+
+The application now creates a `debug.log` file that contains detailed information about each parsed task, including:
+- Task ID
+- Description
+- Status
+- Host
+- Path
+- Start time
+- Diff information
+- First 100 characters of RawText
 
 ## Development
 
@@ -107,7 +119,7 @@ Through careful analysis of the Ansible log file, the following patterns were id
   - Red for failed tasks (`failed`)
 - **Responsive Layout**: The interface adapts to terminal window size changes
 - **Clear Navigation**: Intuitive keyboard controls with visual feedback
-- **Dual-Panel Display**: Task list and diff information shown simultaneously
+- **Dual-Panel Display**: Task list and raw task text shown simultaneously
 - **Viewport Scrolling**: Efficient handling of large numbers of tasks
 - **Search/Filter**: Quick access to specific tasks by keyword
 

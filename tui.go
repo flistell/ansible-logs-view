@@ -41,13 +41,13 @@ var (
 			Foreground(lipgloss.Color("#FFFDF5")).
 			Background(lipgloss.Color("#25A065"))
 			
-	// Diff panel styles
-	diffPanelStyle = lipgloss.NewStyle().
+	// Details panel styles
+	detailsPanelStyle = lipgloss.NewStyle().
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("#25A065")).
 			Padding(1, 2)
 			
-	diffTitleStyle = lipgloss.NewStyle().
+	detailsTitleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFDF5")).
 			Background(lipgloss.Color("#25A065")).
 			Padding(0, 1).
@@ -76,16 +76,17 @@ type model struct {
 	err           error
 	quitting      bool
 	viewport      viewport.Model
-	diffViewport  viewport.Model
+	detailsViewport  viewport.Model
 	offset        int // Vertical offset for viewport scrolling
 	filterInput   textinput.Model
 	showingFilter bool
+	showingDetails bool // Whether to show details panel
 }
 
 func newModel(tasks []Task) model {
 	// Create viewports
 	vp := viewport.New(80, 20)
-	diffVp := viewport.New(80, 10)
+	detailsVp := viewport.New(80, 10)
 	
 	// Create text input for filtering
 	ti := textinput.New()
@@ -103,10 +104,11 @@ func newModel(tasks []Task) model {
 		height:        24,
 		loaded:        true,
 		viewport:      vp,
-		diffViewport:  diffVp,
+		detailsViewport: detailsVp,
 		offset:        0,
 		filterInput:   ti,
 		showingFilter: false,
+		showingDetails: false,
 	}
 }
 
@@ -213,7 +215,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				
 				if originalIndex != -1 {
+					// Toggle expansion state
 					m.expanded[originalIndex] = !m.expanded[originalIndex]
+					
+					// If expanded, show the full raw task text in the details panel
+					if m.expanded[originalIndex] {
+						m.showingDetails = true
+						// Set the raw task text as the content for the details viewport
+						taskRawText := m.filteredTasks[m.selected].RawText
+						m.detailsViewport.SetContent(taskRawText)
+					} else {
+						m.showingDetails = false
+					}
 				}
 				
 				// Update viewport content
@@ -240,7 +253,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		// Handle viewport key messages
 		m.viewport, _ = m.viewport.Update(msg)
-		m.diffViewport, _ = m.diffViewport.Update(msg)
+		m.detailsViewport, _ = m.detailsViewport.Update(msg)
 		
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -248,23 +261,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		// Update viewport sizes
 		m.viewport.Width = m.width - 4 // Account for padding
-		m.diffViewport.Width = m.width - 4
+		m.detailsViewport.Width = m.width - 4
 		
-		// Calculate heights based on whether diff panel is visible
-		if m.showingFilter || (len(m.filteredTasks) > 0 && m.expanded[m.getIndexInOriginalTaskList(m.selected)] && m.selected < len(m.filteredTasks) && m.filteredTasks[m.selected].Diff != "") {
-			// Split screen: 2/3 for task list, 1/3 for diff or filter input
+		// Calculate heights based on whether details panel is visible
+		if m.showingFilter || (len(m.filteredTasks) > 0 && m.showingDetails) {
+			// Split screen: 2/3 for task list, 1/3 for details or filter input
 			m.viewport.Height = (m.height - 10) * 2 / 3
-			m.diffViewport.Height = (m.height - 10) / 3
+			m.detailsViewport.Height = (m.height - 10) / 3
 		} else {
 			// Full screen for task list
 			m.viewport.Height = m.height - 8
-			m.diffViewport.Height = 0
+			m.detailsViewport.Height = 0
 		}
 		
 		// Update viewport content
 		m.viewport.SetContent(m.renderTaskList())
-		if len(m.filteredTasks) > 0 && m.expanded[m.getIndexInOriginalTaskList(m.selected)] && m.selected < len(m.filteredTasks) && m.filteredTasks[m.selected].Diff != "" {
-			m.diffViewport.SetContent(m.filteredTasks[m.selected].Diff)
+		if len(m.filteredTasks) > 0 && m.showingDetails {
+			taskRawText := m.filteredTasks[m.selected].RawText
+			m.detailsViewport.SetContent(taskRawText)
 		}
 	}
 	
@@ -298,9 +312,9 @@ func (m model) View() string {
 	// Task list viewport
 	b.WriteString(m.viewport.View() + "\n")
 	
-	// Show diff panel if selected task is expanded and has diff
-	if len(m.filteredTasks) > 0 && m.expanded[m.getIndexInOriginalTaskList(m.selected)] && m.selected < len(m.filteredTasks) && m.filteredTasks[m.selected].Diff != "" {
-		b.WriteString("\n" + m.renderDiffPanel(m.filteredTasks[m.selected]) + "\n")
+	// Show details panel if selected task is expanded
+	if len(m.filteredTasks) > 0 && m.showingDetails {
+		b.WriteString("\n" + m.renderDetailsPanel(m.filteredTasks[m.selected]) + "\n")
 	}
 	
 	// Help text
@@ -373,7 +387,7 @@ func (m model) renderTaskList() string {
 		
 		b.WriteString(line + "\n")
 		
-		// If expanded, show details
+		// If expanded, show details in the inline view
 		if taskIndex != -1 && m.expanded[taskIndex] {
 			details := fmt.Sprintf("Host: %s\nPath: %s\nStart Time: %s\nStatus: %s", 
 				task.Host, 
@@ -389,20 +403,20 @@ func (m model) renderTaskList() string {
 	return b.String()
 }
 
-func (m model) renderDiffPanel(task Task) string {
-	if task.Diff == "" {
-		return ""
-	}
+func (m model) renderDetailsPanel(task Task) string {
+	// Create details panel
+	title := detailsTitleStyle.Render(fmt.Sprintf("Details for Task #%d: %s", task.ID, task.Description))
 	
-	// Create diff panel
-	title := diffTitleStyle.Render(fmt.Sprintf("Diff for Task #%d: %s", task.ID, task.Description))
+	// Set the raw task text as the content for the details viewport
+	m.detailsViewport.SetContent(task.RawText)
 	
-	// Update diff viewport content
-	m.diffViewport.SetContent(task.Diff)
+	// Get the rendered content from the viewport
+	viewportContent := m.detailsViewport.View()
 	
-	content := fmt.Sprintf("%s\n%s", title, m.diffViewport.View())
+	// Combine the title and viewport content
+	content := fmt.Sprintf("%s\n%s", title, viewportContent)
 	
-	return diffPanelStyle.Render(content)
+	return detailsPanelStyle.Render(content)
 }
 
 // applyFilter filters tasks based on the provided search term
@@ -423,7 +437,8 @@ func (m *model) applyFilter(term string) {
 			strings.Contains(task.StartTime.Format("2006-01-02 15:04:05"), term) ||
 			strings.Contains(task.StartTime.Format("2006-01-02"), term) ||
 			strings.Contains(task.StartTime.Format("15:04:05"), term) ||
-			strings.Contains(strings.ToLower(task.Diff), term) {
+			strings.Contains(strings.ToLower(task.Diff), term) ||
+			strings.Contains(strings.ToLower(task.RawText), term) {
 			filtered = append(filtered, task)
 		}
 	}

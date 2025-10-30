@@ -29,6 +29,13 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 	}
 	defer file.Close()
 
+	// Open debug log file
+	debugFile, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("error opening debug log file: %v", err)
+	}
+	defer debugFile.Close()
+
 	scanner := bufio.NewScanner(file)
 	var currentTask *Task
 	taskID := 1
@@ -62,6 +69,55 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 
+		// Check if we're entering a new task
+		if strings.HasPrefix(line, "TASK [") {
+			// If we have a current task, save it
+			if currentTask != nil {
+				// Add any remaining diff content
+				if len(diffLines) > 0 {
+					if currentTask.Diff != "" {
+						currentTask.Diff += "\n" + strings.Join(diffLines, "\n")
+					} else {
+						currentTask.Diff = strings.Join(diffLines, "\n")
+					}
+				}
+				// Log the task before appending to tasks
+				debugLog := fmt.Sprintf("Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 100 chars): %s\n\n",
+					currentTask.ID, currentTask.Description, currentTask.Status, currentTask.Host, 
+					currentTask.Path, currentTask.StartTime.Format("2006-01-02 15:04:05"), 
+					currentTask.Diff, 
+					func() string {
+						if len(currentTask.RawText) > 100 {
+							return currentTask.RawText[:100] + "..."
+						}
+						return currentTask.RawText
+					}())
+				debugFile.WriteString(debugLog)
+				
+				p.tasks = append(p.tasks, *currentTask)
+			}
+			
+			// Reset diff lines for the new task
+			diffLines = nil
+			
+			currentTask = &Task{
+				ID:          taskID,
+				Description: strings.TrimSpace(taskRegex.FindStringSubmatch(line)[1]),
+				Status:      "unknown", // Default status
+				RawText:     line + "\n", // Start building raw text with the task header
+			}
+			taskID++
+			continue
+		}
+
+		// If we don't have a current task, skip
+		if currentTask == nil {
+			continue
+		}
+
+		// Add the current line to the raw text
+		currentTask.RawText += line + "\n"
+
 		// Check if we're entering a diff section
 		if diffStartRegex.MatchString(line) {
 			inDiffSection = true
@@ -75,8 +131,8 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 			if line == "" || strings.HasPrefix(line, "TASK [") || 
 			   strings.HasPrefix(line, "ok:") || strings.HasPrefix(line, "changed:") ||
 			   strings.HasPrefix(line, "skipping:") || strings.HasPrefix(line, "failed:") {
-				// Save the diff to the current task if it exists
-				if currentTask != nil && len(diffLines) > 0 {
+				// Save the diff to the current task
+				if len(diffLines) > 0 {
 					if currentTask.Diff != "" {
 						currentTask.Diff += "\n" + strings.Join(diffLines, "\n")
 					} else {
@@ -86,44 +142,13 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 				inDiffSection = false
 				diffLines = nil
 				
-				// Continue with normal processing if this is a new task
+				// If this was a new task, we've already processed it above
 				if strings.HasPrefix(line, "TASK [") {
-					// Process the task line
-					if currentTask != nil {
-						p.tasks = append(p.tasks, *currentTask)
-					}
-					
-					currentTask = &Task{
-						ID:          taskID,
-						Description: strings.TrimSpace(taskRegex.FindStringSubmatch(line)[1]),
-						Status:      "unknown", // Default status
-					}
-					taskID++
 					continue
 				}
-				continue
+			} else {
+				diffLines = append(diffLines, line)
 			}
-			diffLines = append(diffLines, line)
-			continue
-		}
-
-		// Match task header
-		if strings.HasPrefix(line, "TASK [") {
-			if currentTask != nil {
-				p.tasks = append(p.tasks, *currentTask)
-			}
-			
-			currentTask = &Task{
-				ID:          taskID,
-				Description: strings.TrimSpace(taskRegex.FindStringSubmatch(line)[1]),
-				Status:      "unknown", // Default status
-			}
-			taskID++
-			continue
-		}
-
-		// If we don't have a current task, skip
-		if currentTask == nil {
 			continue
 		}
 
@@ -160,7 +185,7 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 
 		// Extract host from started line
 		if matches := startedRegex.FindStringSubmatch(line); len(matches) > 2 {
-			// We already set the description from the task header
+			currentTask.Host = matches[2] // Set the host from the started line
 			continue
 		}
 
@@ -200,6 +225,19 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 				currentTask.Diff = strings.Join(diffLines, "\n")
 			}
 		}
+		// Log the last task
+		debugLog := fmt.Sprintf("Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 100 chars): %s\n\n",
+			currentTask.ID, currentTask.Description, currentTask.Status, currentTask.Host, 
+			currentTask.Path, currentTask.StartTime.Format("2006-01-02 15:04:05"), 
+			currentTask.Diff, 
+			func() string {
+				if len(currentTask.RawText) > 1000 {
+					return currentTask.RawText[:1000] + "..."
+				}
+				return currentTask.RawText
+			}())
+		debugFile.WriteString(debugLog)
+		
 		p.tasks = append(p.tasks, *currentTask)
 	}
 

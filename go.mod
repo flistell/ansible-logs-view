@@ -1,4 +1,4 @@
-module ansible-logs-tui
+module ansible-logs-view
 
 go 1.25.3
 

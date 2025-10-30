@@ -13,6 +13,7 @@ type Task struct {
 	Host        string
 	Path        string
 	Diff        string // Diff information for the task
+	RawText     string // Raw text of the entire task from the log file
 }
 
 // DiffSection represents a diff section in a task
