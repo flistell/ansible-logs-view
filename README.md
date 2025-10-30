@@ -12,6 +12,7 @@ A terminal user interface (TUI) for viewing and analyzing Ansible log files, bui
 - Expand/collapse tasks to view detailed information without changing panels
 - View diff information for tasks that modify files in a separate panel
 - Color-coded status indicators for quick visual identification
+- Filter tasks by description, status, date, host, path, or diff content
 
 ## Installation
 
@@ -39,7 +40,15 @@ Run the application with an Ansible log file as an argument:
 - `Enter` / `Space` : Expand/collapse selected task
 - `g` : Go to the top of the task list
 - `G` : Go to the bottom of the task list
-- `q` / `Esc` / `Ctrl+C` : Quit the application
+- `/` : Toggle filter input
+- `q` / `Ctrl+C` : Quit the application
+
+### Filtering Tasks
+
+1. Press `/` to open the filter input
+2. Type your search term (any part of task description, status, date, host, path, or diff content)
+3. Press `Enter` to apply the filter
+4. Press `Esc` to cancel filtering and restore all tasks
 
 ### Viewing Task Details and Diffs
 
@@ -100,6 +109,7 @@ Through careful analysis of the Ansible log file, the following patterns were id
 - **Clear Navigation**: Intuitive keyboard controls with visual feedback
 - **Dual-Panel Display**: Task list and diff information shown simultaneously
 - **Viewport Scrolling**: Efficient handling of large numbers of tasks
+- **Search/Filter**: Quick access to specific tasks by keyword
 
 ## Benefits
 
@@ -107,6 +117,7 @@ Through careful analysis of the Ansible log file, the following patterns were id
 - **Quick Analysis**: Rapidly identify which tasks executed successfully, changed systems, or failed
 - **Change Tracking**: Easily see exactly what files were modified by each task
 - **Troubleshooting**: Quickly pinpoint problematic tasks and understand their impact
+- **Task Filtering**: Find specific tasks by description, status, date, or other criteria
 
 ### For System Administrators
 - **Deployment Verification**: Confirm that deployments executed as expected

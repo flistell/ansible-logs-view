@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -56,10 +57,17 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262")).
 			Italic(true)
+			
+	// Filter input style
+	filterStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFDF5")).
+			Background(lipgloss.Color("#888888")).
+			Padding(0, 1)
 )
 
 type model struct {
 	tasks         []Task
+	filteredTasks []Task
 	selected      int
 	expanded      map[int]bool // Track which tasks are expanded
 	width         int
@@ -70,6 +78,8 @@ type model struct {
 	viewport      viewport.Model
 	diffViewport  viewport.Model
 	offset        int // Vertical offset for viewport scrolling
+	filterInput   textinput.Model
+	showingFilter bool
 }
 
 func newModel(tasks []Task) model {
@@ -77,16 +87,26 @@ func newModel(tasks []Task) model {
 	vp := viewport.New(80, 20)
 	diffVp := viewport.New(80, 10)
 	
+	// Create text input for filtering
+	ti := textinput.New()
+	ti.Placeholder = "Filter tasks..."
+	ti.Prompt = "🔍 "
+	ti.CharLimit = 100
+	ti.Width = 30
+	
 	return model{
-		tasks:        tasks,
-		selected:     0,
-		expanded:     make(map[int]bool),
-		width:        80,
-		height:       24,
-		loaded:       true,
-		viewport:     vp,
-		diffViewport: diffVp,
-		offset:       0,
+		tasks:         tasks,
+		filteredTasks: tasks, // Initially, no filter
+		selected:      0,
+		expanded:      make(map[int]bool),
+		width:         80,
+		height:        24,
+		loaded:        true,
+		viewport:      vp,
+		diffViewport:  diffVp,
+		offset:        0,
+		filterInput:   ti,
+		showingFilter: false,
 	}
 }
 
@@ -99,10 +119,66 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle filter input first if it's focused
+		if m.showingFilter {
+			var cmd tea.Cmd
+			m.filterInput, cmd = m.filterInput.Update(msg)
+			
+			switch msg.String() {
+			case "esc":
+				// Cancel filter and restore all tasks
+				m.showingFilter = false
+				m.filterInput.Blur()
+				m.filterInput.SetValue("")
+				m.filteredTasks = m.tasks
+				m.selected = 0
+				m.offset = 0
+				// Update viewport content
+				m.viewport.SetContent(m.renderTaskList())
+				return m, nil
+			case "enter":
+				// Apply filter
+				m.showingFilter = false
+				m.filterInput.Blur()
+				m.applyFilter(m.filterInput.Value())
+				m.selected = 0
+				m.offset = 0
+				// Update viewport content
+				m.viewport.SetContent(m.renderTaskList())
+				return m, nil
+			}
+			
+			return m, cmd
+		}
+		
+		// Handle navigation and other keys
 		switch msg.String() {
-		case "q", "esc", "ctrl+c":
+		case "q", "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
+		case "/":
+			// Toggle filter input
+			m.showingFilter = !m.showingFilter
+			if m.showingFilter {
+				m.filterInput.Focus()
+				return m, textinput.Blink
+			} else {
+				m.filterInput.Blur()
+				return m, nil
+			}
+		case "esc":
+			if m.showingFilter {
+				// Cancel filter and restore all tasks
+				m.showingFilter = false
+				m.filterInput.Blur()
+				m.filterInput.SetValue("")
+				m.filteredTasks = m.tasks
+				m.selected = 0
+				m.offset = 0
+				// Update viewport content
+				m.viewport.SetContent(m.renderTaskList())
+				return m, nil
+			}
 		case "up", "k":
 			if m.selected > 0 {
 				m.selected--
@@ -114,7 +190,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewport.SetContent(m.renderTaskList())
 			}
 		case "down", "j":
-			if m.selected < len(m.tasks)-1 {
+			if m.selected < len(m.filteredTasks)-1 {
 				m.selected++
 				// Adjust viewport offset if needed
 				visibleItems := m.viewport.Height - 2 // Account for padding
@@ -125,10 +201,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewport.SetContent(m.renderTaskList())
 			}
 		case "enter", " ":
-			// Toggle expansion of selected item
-			m.expanded[m.selected] = !m.expanded[m.selected]
-			// Update viewport content
-			m.viewport.SetContent(m.renderTaskList())
+			if len(m.filteredTasks) > 0 {
+				// Toggle expansion of selected item
+				// Find the index of the selected task in the original tasks list
+				originalIndex := -1
+				for i, originalTask := range m.tasks {
+					if originalTask.ID == m.filteredTasks[m.selected].ID {
+						originalIndex = i
+						break
+					}
+				}
+				
+				if originalIndex != -1 {
+					m.expanded[originalIndex] = !m.expanded[originalIndex]
+				}
+				
+				// Update viewport content
+				m.viewport.SetContent(m.renderTaskList())
+			}
 		case "g":
 			// Go to top
 			m.selected = 0
@@ -137,10 +227,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(m.renderTaskList())
 		case "G":
 			// Go to bottom
-			m.selected = len(m.tasks) - 1
+			m.selected = len(m.filteredTasks) - 1
 			visibleItems := m.viewport.Height - 2 // Account for padding
-			if len(m.tasks) > visibleItems {
-				m.offset = len(m.tasks) - visibleItems
+			if len(m.filteredTasks) > visibleItems {
+				m.offset = len(m.filteredTasks) - visibleItems
 			} else {
 				m.offset = 0
 			}
@@ -161,8 +251,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.diffViewport.Width = m.width - 4
 		
 		// Calculate heights based on whether diff panel is visible
-		if m.expanded[m.selected] && m.selected < len(m.tasks) && m.tasks[m.selected].Diff != "" {
-			// Split screen: 2/3 for task list, 1/3 for diff
+		if m.showingFilter || (len(m.filteredTasks) > 0 && m.expanded[m.getIndexInOriginalTaskList(m.selected)] && m.selected < len(m.filteredTasks) && m.filteredTasks[m.selected].Diff != "") {
+			// Split screen: 2/3 for task list, 1/3 for diff or filter input
 			m.viewport.Height = (m.height - 10) * 2 / 3
 			m.diffViewport.Height = (m.height - 10) / 3
 		} else {
@@ -173,8 +263,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		// Update viewport content
 		m.viewport.SetContent(m.renderTaskList())
-		if m.selected < len(m.tasks) && m.tasks[m.selected].Diff != "" {
-			m.diffViewport.SetContent(m.tasks[m.selected].Diff)
+		if len(m.filteredTasks) > 0 && m.expanded[m.getIndexInOriginalTaskList(m.selected)] && m.selected < len(m.filteredTasks) && m.filteredTasks[m.selected].Diff != "" {
+			m.diffViewport.SetContent(m.filteredTasks[m.selected].Diff)
 		}
 	}
 	
@@ -197,19 +287,28 @@ func (m model) View() string {
 	// Build the view
 	var b strings.Builder
 	
-	// Title
-	b.WriteString(titleStyle.Render("Ansible Tasks") + "\n\n")
+	// Title with filter input
+	title := titleStyle.Render("Ansible Tasks")
+	if m.showingFilter {
+		b.WriteString(fmt.Sprintf("%s %s\n\n", title, m.filterInput.View()))
+	} else {
+		b.WriteString(fmt.Sprintf("%s\n\n", title))
+	}
 	
 	// Task list viewport
 	b.WriteString(m.viewport.View() + "\n")
 	
 	// Show diff panel if selected task is expanded and has diff
-	if m.expanded[m.selected] && m.selected < len(m.tasks) && m.tasks[m.selected].Diff != "" {
-		b.WriteString("\n" + m.renderDiffPanel(m.tasks[m.selected]) + "\n")
+	if len(m.filteredTasks) > 0 && m.expanded[m.getIndexInOriginalTaskList(m.selected)] && m.selected < len(m.filteredTasks) && m.filteredTasks[m.selected].Diff != "" {
+		b.WriteString("\n" + m.renderDiffPanel(m.filteredTasks[m.selected]) + "\n")
 	}
 	
 	// Help text
-	b.WriteString("\n" + helpStyle.Render("↑/↓: Navigate • Enter: Expand/Collapse • g/G: Top/Bottom • q/Esc/Ctrl+C: Quit"))
+	helpText := "↑/↓: Navigate • Enter: Expand/Collapse • g/G: Top/Bottom • /: Filter • q/Ctrl+C: Quit"
+	if m.showingFilter {
+		helpText = "/: Filter • Esc: Cancel • Enter: Apply"
+	}
+	b.WriteString("\n" + helpStyle.Render(helpText))
 	
 	return appStyle.Render(b.String())
 }
@@ -226,13 +325,13 @@ func (m model) renderTaskList() string {
 	start := m.offset
 	end := start + visibleItems
 	
-	if end > len(m.tasks) {
-		end = len(m.tasks)
+	if end > len(m.filteredTasks) {
+		end = len(m.filteredTasks)
 	}
 	
 	// Render visible tasks
 	for i := start; i < end; i++ {
-		task := m.tasks[i]
+		task := m.filteredTasks[i]
 		
 		// Format: "TASK NUMBER. TASK TITLE. TASK STATUS"
 		title := fmt.Sprintf("%d. %s", task.ID, task.Description)
@@ -257,7 +356,8 @@ func (m model) renderTaskList() string {
 		
 		// Add expansion indicator
 		var indicator string
-		if m.expanded[i] {
+		taskIndex := m.getIndexInOriginalTaskList(i)
+		if taskIndex != -1 && m.expanded[taskIndex] {
 			indicator = expandedStyle.Render("▼")
 		} else {
 			indicator = collapsedStyle.Render("▶")
@@ -274,7 +374,7 @@ func (m model) renderTaskList() string {
 		b.WriteString(line + "\n")
 		
 		// If expanded, show details
-		if m.expanded[i] {
+		if taskIndex != -1 && m.expanded[taskIndex] {
 			details := fmt.Sprintf("Host: %s\nPath: %s\nStart Time: %s\nStatus: %s", 
 				task.Host, 
 				task.Path, 
@@ -303,4 +403,47 @@ func (m model) renderDiffPanel(task Task) string {
 	content := fmt.Sprintf("%s\n%s", title, m.diffViewport.View())
 	
 	return diffPanelStyle.Render(content)
+}
+
+// applyFilter filters tasks based on the provided search term
+func (m *model) applyFilter(term string) {
+	term = strings.ToLower(term)
+	if term == "" {
+		m.filteredTasks = m.tasks
+		return
+	}
+	
+	var filtered []Task
+	for _, task := range m.tasks {
+		// Check against all possible fields
+		if strings.Contains(strings.ToLower(task.Description), term) ||
+			strings.Contains(strings.ToLower(task.Status), term) ||
+			strings.Contains(strings.ToLower(task.Host), term) ||
+			strings.Contains(strings.ToLower(task.Path), term) ||
+			strings.Contains(task.StartTime.Format("2006-01-02 15:04:05"), term) ||
+			strings.Contains(task.StartTime.Format("2006-01-02"), term) ||
+			strings.Contains(task.StartTime.Format("15:04:05"), term) ||
+			strings.Contains(strings.ToLower(task.Diff), term) {
+			filtered = append(filtered, task)
+		}
+	}
+	
+	m.filteredTasks = filtered
+}
+
+// getIndexInOriginalTaskList gets the index of the filtered task in the original tasks list
+func (m *model) getIndexInOriginalTaskList(filteredIndex int) int {
+	if filteredIndex < 0 || filteredIndex >= len(m.filteredTasks) {
+		return -1
+	}
+	
+	task := m.filteredTasks[filteredIndex]
+	
+	for i, originalTask := range m.tasks {
+		if originalTask.ID == task.ID {
+			return i
+		}
+	}
+	
+	return -1
 }
