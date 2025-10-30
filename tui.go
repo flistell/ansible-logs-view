@@ -190,6 +190,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Update viewport content
 				m.viewport.SetContent(m.renderTaskList())
+				if m.showingDetails {
+					taskRawText := m.filteredTasks[m.selected].RawText
+					m.detailsViewport.SetContent(taskRawText)
+				}
 			}
 		case "down", "j":
 			if m.selected < len(m.filteredTasks)-1 {
@@ -201,6 +205,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Update viewport content
 				m.viewport.SetContent(m.renderTaskList())
+				if m.showingDetails {
+					taskRawText := m.filteredTasks[m.selected].RawText
+					m.detailsViewport.SetContent(taskRawText)
+				}
 			}
 		case "enter", " ":
 			if len(m.filteredTasks) > 0 {
@@ -406,16 +414,10 @@ func (m model) renderTaskList() string {
 func (m model) renderDetailsPanel(task Task) string {
 	// Create details panel
 	title := detailsTitleStyle.Render(fmt.Sprintf("Details for Task #%d: %s", task.ID, task.Description))
-	
-	// Set the raw task text as the content for the details viewport
-	m.detailsViewport.SetContent(task.RawText)
-	
-	// Get the rendered content from the viewport
-	viewportContent := m.detailsViewport.View()
-	
+
 	// Combine the title and viewport content
-	content := fmt.Sprintf("%s\n%s", title, viewportContent)
-	
+	content := fmt.Sprintf("%s\n%s", title, task.RawText)
+
 	return detailsPanelStyle.Render(content)
 }
 

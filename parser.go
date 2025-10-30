@@ -226,7 +226,7 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 			}
 		}
 		// Log the last task
-		debugLog := fmt.Sprintf("Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 100 chars): %s\n\n",
+		debugLog := fmt.Sprintf("Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 1000 chars): %s\n\n",
 			currentTask.ID, currentTask.Description, currentTask.Status, currentTask.Host, 
 			currentTask.Path, currentTask.StartTime.Format("2006-01-02 15:04:05"), 
 			currentTask.Diff, 
