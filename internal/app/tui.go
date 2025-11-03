@@ -50,8 +50,7 @@ var (
 	selectedStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("#25A065")).
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Bold(true).
-			Width(76)
+			Bold(true)
 
 	// Inline detail style for expanded nodes
 	inlineDetailStyle = lipgloss.NewStyle().
@@ -461,7 +460,8 @@ func (m Model) renderNodeList() string {
 		line := fmt.Sprintf("%s%s [%d] %s - [%s]", indent, indicator, node.ID, node.Name, statusStr)
 		if i == m.selected {
 			debugLog.Printf("Highlighting line %d: %s", i, line)
-			line = selectedStyle.Render(line)
+			selectedLineStyle := selectedStyle.Copy().Width(m.width - 4)
+			line = selectedLineStyle.Render(line)
 		}
 		b.WriteString(line + "\n")
 		// If the node is expanded, show its description as an indented detail
