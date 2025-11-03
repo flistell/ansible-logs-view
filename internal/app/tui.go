@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -14,18 +15,25 @@ import (
 
 var debugLog *log.Logger
 
-func init() {
-	// Open debug.log file
-	logFile, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		fmt.Printf("Error opening debug.log: %v\n", err)
-		return
+func setupLogger(enableDebug bool) {
+	if enableDebug {
+		// Open debug.log file
+		logFile, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			fmt.Printf("Error opening debug.log: %v\n", err)
+			return
+		}
+
+		// Initialize the logger
+		debugLog = log.New(logFile, "", log.Ldate|log.Ltime|log.Lmicroseconds)
+		debugLog.Println("=== Application Started ===")
+	} else {
+		// If debug is not enabled, set debugLog to a no-op logger
+		debugLog = log.New(io.Discard, "", 0)
 	}
-	
-	// Initialize the logger
-	debugLog = log.New(logFile, "", log.Ldate|log.Ltime|log.Lmicroseconds)
-	debugLog.Println("=== Application Started ===")
 }
+
+
 
 var (
 	appStyle = lipgloss.NewStyle().Padding(1, 2)
@@ -148,7 +156,8 @@ type Model struct {
 	showingFilter   bool
 }
 
-func NewModel(tasks []Task) Model {
+func NewModel(tasks []Task, enableDebug bool) Model {
+	setupLogger(enableDebug)
 	debugLog.Printf("Received %d tasks", len(tasks))
 
 	nodes := convertTasksToNodes(tasks)
