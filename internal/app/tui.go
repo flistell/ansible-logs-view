@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"fmt"
@@ -65,7 +65,7 @@ var (
 			Padding(0, 1)
 )
 
-type model struct {
+type Model struct {
 	tasks           []Task
 	filteredTasks   []Task
 	selected        int
@@ -83,7 +83,7 @@ type model struct {
 	showingDetails  bool // Whether to show details panel
 }
 
-func newModel(tasks []Task) model {
+func NewModel(tasks []Task) Model {
 	// Create viewports
 	vp := viewport.New(80, 20)
 	detailsVp := viewport.New(80, 10)
@@ -95,7 +95,7 @@ func newModel(tasks []Task) model {
 	ti.CharLimit = 100
 	ti.Width = 30
 
-	return model{
+	return Model{
 		tasks:           tasks,
 		filteredTasks:   tasks, // Initially, no filter
 		selected:        0,
@@ -112,13 +112,13 @@ func newModel(tasks []Task) model {
 	}
 }
 
-func (m model) Init() tea.Cmd {
+func (m Model) Init() tea.Cmd {
 	// Initialize viewport content
 	m.viewport.SetContent(m.renderTaskList())
 	return nil
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle filter input first if it's focused
@@ -303,7 +303,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) View() string {
+func (m Model) View() string {
 	if m.quitting {
 		return ""
 	}
@@ -345,7 +345,7 @@ func (m model) View() string {
 	return appStyle.Render(b.String())
 }
 
-func (m model) renderTaskList() string {
+func (m Model) renderTaskList() string {
 	var b strings.Builder
 
 	// Calculate visible range
@@ -421,7 +421,7 @@ func (m model) renderTaskList() string {
 	return b.String()
 }
 
-func (m model) renderDetailsPanel(task Task) string {
+func (m Model) renderDetailsPanel(task Task) string {
 	// Create details panel
 	title := detailsTitleStyle.Render(fmt.Sprintf("Details for Task #%d: %s", task.ID, task.Description))
 
@@ -447,7 +447,7 @@ func (m model) renderDetailsPanel(task Task) string {
 }
 
 // applyFilter filters tasks based on the provided search term
-func (m *model) applyFilter(term string) {
+func (m *Model) applyFilter(term string) {
 	term = strings.ToLower(term)
 	if term == "" {
 		m.filteredTasks = m.tasks
@@ -474,7 +474,7 @@ func (m *model) applyFilter(term string) {
 }
 
 // getIndexInOriginalTaskList gets the index of the filtered task in the original tasks list
-func (m *model) getIndexInOriginalTaskList(filteredIndex int) int {
+func (m *Model) getIndexInOriginalTaskList(filteredIndex int) int {
 	if filteredIndex < 0 || filteredIndex >= len(m.filteredTasks) {
 		return -1
 	}
