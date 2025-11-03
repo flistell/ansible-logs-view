@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -16,6 +17,8 @@ import (
 
 var (
 	appStyle = lipgloss.NewStyle().Padding(1, 2)
+
+	expandedNodeCount int
 
 	headerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFDF5")).
@@ -67,8 +70,13 @@ type TreeNode struct {
 	ID          int
 	Name        string
 	Description string
+	StartTime   time.Time
+	Status      string 
+	Host        string
+	Path        string
+	Diff        string 
+	RawText     string 
 	IsExpanded  bool
-	Status	  string
 }
 
 // flatNode represents a node in the flattened tree for display
@@ -87,8 +95,13 @@ func convertTasksToNodes(tasks []Task) []TreeNode {
 			ID:          task.ID,
 			Name:        task.Description,
 			Description: task.RawText,
+			StartTime:   task.StartTime,
+			Status:      task.Status,
+			Host:       task.Host,
+			Path:       task.Path,
+			Diff:       task.Diff,
+			RawText:    task.RawText,
 			IsExpanded:  false,
-			Status: task.Status,
 		}
 	}
 	return nodes
@@ -147,6 +160,8 @@ func NewModel(tasks []Task, enableDebug bool) Model {
 
 	detailsVp := viewport.New(0, 0)
 	detailsVp.HighPerformanceRendering = false
+
+	expandedNodeCount = 0
 
 	ti := textinput.New()
 	ti.Placeholder = "Filter..."
@@ -320,10 +335,13 @@ func (m *Model) updateViewports() {
 	)
 
 	// Calculate available space
+	debugLog.Printf("Calculating viewport sizes with terminal height: %d", m.height)
+	debugLog.Printf("Expanded node count: %d", expandedNodeCount)
 	remainingHeight := m.height - headerHeight - helpHeight - detailsHeight - 4 // -4 for padding and margins
 	if remainingHeight < minNodesHeight {
 		remainingHeight = minNodesHeight
 	}
+	debugLog.Printf("Calculated remaining height for nodes viewport: %d", remainingHeight)
 
 	// Set viewport dimensions
 	m.nodesViewport.Width = m.width - horizontalPadding
@@ -416,6 +434,7 @@ func (m Model) View() string {
 func (m Model) renderNodeList() string {
 	var b strings.Builder
 	debugLog.Printf("Rendering %d nodes, selected index: %d", len(m.flatNodes), m.selected)
+	expandedNodeCount = 0
 	for i, flatNode := range m.flatNodes {
 		node := flatNode.node
 		indent := strings.Repeat("  ", flatNode.depth)
@@ -442,6 +461,7 @@ func (m Model) renderNodeList() string {
 		indicator := " "
 		if node.IsExpanded {
 			indicator = "▼"
+			expandedNodeCount++
 		} else {
 			indicator = "▶"
 		}
@@ -454,7 +474,12 @@ func (m Model) renderNodeList() string {
 		b.WriteString(line + "\n")
 		// If the node is expanded, show its description as an indented detail
 		if node.IsExpanded && strings.TrimSpace(node.Description) != "" {
-			descLine := fmt.Sprintf("%s  %s", indent, node.Description)
+			descLine := fmt.Sprintf("Host: %s\nPath: %s\nStart Time: %s\nStatus: %s", 
+				node.Host, 
+				node.Path, 
+				node.StartTime.Format("2006-01-02 15:04:05"), 
+				node.Status)
+			
 			b.WriteString(inlineDetailStyle.Render(descLine) + "\n")
 		}
 	}
