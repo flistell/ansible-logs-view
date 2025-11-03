@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -10,13 +12,30 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+var debugLog *log.Logger
+
+func init() {
+	// Open debug.log file
+	logFile, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Printf("Error opening debug.log: %v\n", err)
+		return
+	}
+	
+	// Initialize the logger
+	debugLog = log.New(logFile, "", log.Ldate|log.Ltime|log.Lmicroseconds)
+	debugLog.Println("=== Application Started ===")
+}
+
 var (
 	appStyle = lipgloss.NewStyle().Padding(1, 2)
 
-	titleStyle = lipgloss.NewStyle().
+	headerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFDF5")).
 			Background(lipgloss.Color("#25A065")).
-			Padding(0, 1)
+			Bold(true).
+			Padding(0, 2).
+			MarginBottom(1)
 
 	statusStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFDF5")).
@@ -28,279 +47,351 @@ var (
 	statusFailedStyle   = statusStyle.Copy().Background(lipgloss.Color("#FF0000"))
 	statusUnknownStyle  = statusStyle.Copy().Background(lipgloss.Color("#888888"))
 
-	// Styles for tree view
-	expandedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#25A065"))
-	collapsedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500"))
-
-	// Detail styles within tree items
-	detailStyle = lipgloss.NewStyle().
-			PaddingLeft(4).
-			Foreground(lipgloss.Color("#AAAAAA"))
-
 	selectedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFDF5")).
-			Background(lipgloss.Color("#25A065"))
+			Background(lipgloss.Color("#25A065")).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true).
+			Width(76)
+
+	// Inline detail style for expanded nodes
+	inlineDetailStyle = lipgloss.NewStyle().
+				PaddingLeft(4).
+				Foreground(lipgloss.Color("#AAAAAA"))
 
 	// Details panel styles
 	detailsPanelStyle = lipgloss.NewStyle().
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.Color("#25A065")).
-				Padding(1, 2)
+				Padding(1, 2).
+				Height(10) // Fixed height for details panel
 
 	detailsTitleStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFFDF5")).
 				Background(lipgloss.Color("#25A065")).
-				Padding(0, 1).
-				MarginBottom(1)
+				Padding(0, 1)
 
 	// Help text style
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262")).
 			Italic(true)
-
-	// Filter input style
-	filterStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFDF5")).
-			Background(lipgloss.Color("#888888")).
-			Padding(0, 1)
 )
 
+// TreeNode represents a node in our tree structure
+type TreeNode struct {
+	ID          int
+	Name        string
+	Description string
+	IsExpanded  bool
+	Status	  string
+}
+
+// flatNode represents a node in the flattened tree for display
+type flatNode struct {
+	node  *TreeNode
+	depth int
+}
+
+
+
+// Convert tasks to tree nodes
+func convertTasksToNodes(tasks []Task) []TreeNode {
+	nodes := make([]TreeNode, len(tasks))
+	for i, task := range tasks {
+		nodes[i] = TreeNode{
+			ID:          task.ID,
+			Name:        task.Description,
+			Description: task.RawText,
+			IsExpanded:  false,
+			Status: task.Status,
+		}
+	}
+	return nodes
+}
+
+// fuzzyMatch performs a simple fuzzy match: all characters in pattern must
+// appear in order in s (case-insensitive). This is cheap and good for
+// interactive filtering.
+func fuzzyMatch(pattern, s string) bool {
+	pattern = strings.ToLower(pattern)
+	s = strings.ToLower(s)
+	if pattern == "" {
+		return true
+	}
+	si := 0
+	for _, pr := range pattern {
+		idx := strings.IndexRune(s[si:], pr)
+		if idx < 0 {
+			return false
+		}
+		si += idx + 1
+		if si >= len(s) && pr != rune(pattern[len(pattern)-1]) {
+			// if we've reached the end of s but there are still pattern runes
+			// left (and the last rune wasn't matched), it's a fail
+			// (the normal IndexRune check above handles most cases)
+		}
+	}
+	return true
+}
+// Model represents the TUI state (PoC)
 type Model struct {
-	tasks           []Task
-	filteredTasks   []Task
+	nodes           []TreeNode
+	filteredNodes   []TreeNode
+	flatNodes       []flatNode // All visible nodes in a flat list
 	selected        int
-	expanded        map[int]bool // Track which tasks are expanded
 	width           int
 	height          int
 	loaded          bool
 	err             error
 	quitting        bool
-	viewport        viewport.Model
+	nodesViewport   viewport.Model
 	detailsViewport viewport.Model
-	offset          int // Vertical offset for viewport scrolling
 	filterInput     textinput.Model
 	showingFilter   bool
-	showingDetails  bool // Whether to show details panel
 }
 
 func NewModel(tasks []Task) Model {
-	// Create viewports
-	vp := viewport.New(80, 20)
-	detailsVp := viewport.New(80, 10)
+	debugLog.Printf("Received %d tasks", len(tasks))
 
-	// Create text input for filtering
+	nodes := convertTasksToNodes(tasks)
+	debugLog.Printf("Converted to %d nodes", len(nodes))
+
+	nodesVp := viewport.New(0, 0) // Let updateViewports set the dimensions
+	nodesVp.HighPerformanceRendering = false // Try without high performance mode
+
+	detailsVp := viewport.New(0, 0)
+	detailsVp.HighPerformanceRendering = false
+
 	ti := textinput.New()
-	ti.Placeholder = "Filter tasks..."
-	ti.Prompt = "🔍 "
+	ti.Placeholder = "Filter..."
+	ti.Prompt = "> "
 	ti.CharLimit = 100
 	ti.Width = 30
 
-	return Model{
-		tasks:           tasks,
-		filteredTasks:   tasks, // Initially, no filter
+	m := Model{
+		nodes:           nodes,
 		selected:        0,
-		expanded:        make(map[int]bool),
 		width:           80,
 		height:          24,
 		loaded:          true,
-		viewport:        vp,
+		nodesViewport:   nodesVp,
 		detailsViewport: detailsVp,
-		offset:          0,
 		filterInput:     ti,
-		showingFilter:   false,
-		showingDetails:  true,
 	}
+	
+	// Initialize the filtered nodes and build flat nodes
+	m.filteredNodes = nodes
+	m.rebuildFlatNodes()
+	
+	// Update viewports to set dimensions and content
+	m.updateViewports()
+	
+	debugLog.Printf("Initial viewport content length: %d", len(m.nodesViewport.View()))
+	
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
-	// Initialize viewport content
-	m.viewport.SetContent(m.renderTaskList())
-	return nil
+	return textinput.Blink
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		// Handle filter input first if it's focused
-		if m.showingFilter {
-			var cmd tea.Cmd
-			m.filterInput, cmd = m.filterInput.Update(msg)
+	var cmd tea.Cmd
+	var cmds []tea.Cmd
 
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.updateViewports()
+		return m, nil
+
+	case tea.KeyMsg:
+		if m.showingFilter {
 			switch msg.String() {
 			case "esc":
-				// Cancel filter and restore all tasks
 				m.showingFilter = false
 				m.filterInput.Blur()
 				m.filterInput.SetValue("")
-				m.filteredTasks = m.tasks
-				m.selected = 0
-				m.offset = 0
-				// Update viewport content
-				m.viewport.SetContent(m.renderTaskList())
+				m.applyFilter("")
+				m.updateViewports()
 				return m, nil
 			case "enter":
-				// Apply filter
 				m.showingFilter = false
 				m.filterInput.Blur()
+				// apply final filter and close input
 				m.applyFilter(m.filterInput.Value())
-				m.selected = 0
-				m.offset = 0
-				// Update viewport content
-				m.viewport.SetContent(m.renderTaskList())
+				m.updateViewports()
 				return m, nil
+			default:
+				// update the input model first
+				m.filterInput, cmd = m.filterInput.Update(msg)
+				// apply filter as-you-type
+				m.applyFilter(m.filterInput.Value())
+				// update viewport content without full resize
+				m.nodesViewport.SetContent(strings.TrimSpace(m.renderNodeList()))
+				return m, cmd
 			}
-
-			return m, cmd
 		}
 
-		// Handle navigation and other keys
 		switch msg.String() {
 		case "q", "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
 		case "/":
-			// Toggle filter input
-			m.showingFilter = !m.showingFilter
-			if m.showingFilter {
-				m.filterInput.Focus()
-				return m, textinput.Blink
-			} else {
-				m.filterInput.Blur()
-				return m, nil
-			}
-		case "esc":
-			if m.showingFilter {
-				// Cancel filter and restore all tasks
-				m.showingFilter = false
-				m.filterInput.Blur()
-				m.filterInput.SetValue("")
-				m.filteredTasks = m.tasks
-				m.selected = 0
-				m.offset = 0
-				// Update viewport content
-				m.viewport.SetContent(m.renderTaskList())
-				return m, nil
-			}
+			m.showingFilter = true
+			m.filterInput.Focus()
+			return m, textinput.Blink
 		case "up", "k":
 			if m.selected > 0 {
 				m.selected--
-				// Adjust viewport offset if needed
-				if m.selected < m.offset {
-					m.offset = m.selected
+				debugLog.Printf("Moving up, new selected index: %d", m.selected)
+				if m.selected < m.nodesViewport.YOffset {
+					m.nodesViewport.SetYOffset(m.selected)
 				}
-				// Update viewport content
-				m.viewport.SetContent(m.renderTaskList())
-				// Always update details viewport content for the selected task
-				if len(m.filteredTasks) > 0 {
-					taskRawText := m.filteredTasks[m.selected].RawText
-					wrapped := lipgloss.NewStyle().Width(m.detailsViewport.Width).Render(taskRawText)
-					m.detailsViewport.SetContent(wrapped)
-					m.detailsViewport.GotoTop()
-				}
+				nodeList := m.renderNodeList()
+				m.nodesViewport.SetContent(nodeList)
+				m.updateDetailsViewportContent()
 			}
 		case "down", "j":
-			if m.selected < len(m.filteredTasks)-1 {
+			if m.selected < len(m.flatNodes)-1 {
 				m.selected++
-				// Adjust viewport offset if needed
-				visibleItems := m.viewport.Height - 2 // Account for padding
-				if m.selected >= m.offset+visibleItems {
-					m.offset = m.selected - visibleItems + 1
+				debugLog.Printf("Moving down, new selected index: %d", m.selected)
+				if m.selected >= m.nodesViewport.YOffset+m.nodesViewport.Height {
+					m.nodesViewport.SetYOffset(m.selected - m.nodesViewport.Height + 1)
 				}
-				// Update viewport content
-				m.viewport.SetContent(m.renderTaskList())
-				// Always update details viewport content for the selected task
-				if len(m.filteredTasks) > 0 {
-					taskRawText := m.filteredTasks[m.selected].RawText
-					wrapped := lipgloss.NewStyle().Width(m.detailsViewport.Width).Render(taskRawText)
-					m.detailsViewport.SetContent(wrapped)
-					m.detailsViewport.GotoTop()
-				}
+				nodeList := m.renderNodeList()
+				m.nodesViewport.SetContent(nodeList)
+				m.updateDetailsViewportContent()
 			}
-		case "enter", " ":
-			if len(m.filteredTasks) > 0 {
-				// Toggle expansion of selected item
-				// Find the index of the selected task in the original tasks list
-				originalIndex := -1
-				for i, originalTask := range m.tasks {
-					if originalTask.ID == m.filteredTasks[m.selected].ID {
-						originalIndex = i
-						break
-					}
-				}
-
-				if originalIndex != -1 {
-					// Toggle expansion state
-					m.expanded[originalIndex] = !m.expanded[originalIndex]
-
-					// Update details panel content for the selected task regardless
-					// of the node's expanded state.
-					m.detailsViewport.Width = m.width - 4
-					m.detailsViewport.Height = m.height / 3
-					taskRawText := m.filteredTasks[m.selected].RawText
-					wrapped := lipgloss.NewStyle().Width(m.detailsViewport.Width).Render(taskRawText)
-					m.detailsViewport.SetContent(wrapped)
-					m.detailsViewport.GotoTop()
-				}
-
-				// Update viewport content
-				m.viewport.SetContent(m.renderTaskList())
+		case "enter", "return", " ":
+			if len(m.flatNodes) > 0 {
+				node := m.flatNodes[m.selected].node
+				node.IsExpanded = !node.IsExpanded
+				oldSelected := m.selected
+				m.rebuildFlatNodes()
+				m.updateViewports()
+				m.selected = oldSelected
 			}
 		case "g":
-			// Go to top
 			m.selected = 0
-			m.offset = 0
-			// Update viewport content
-			m.viewport.SetContent(m.renderTaskList())
+			m.nodesViewport.GotoTop()
+			m.updateDetailsViewportContent()
 		case "G":
-			// Go to bottom
-			m.selected = len(m.filteredTasks) - 1
-			visibleItems := m.viewport.Height - 2 // Account for padding
-			if len(m.filteredTasks) > visibleItems {
-				m.offset = len(m.filteredTasks) - visibleItems
-			} else {
-				m.offset = 0
+			if len(m.flatNodes) > 0 {
+				m.selected = len(m.flatNodes) - 1
+				m.nodesViewport.GotoBottom()
+				m.updateDetailsViewportContent()
 			}
-			// Update viewport content
-			m.viewport.SetContent(m.renderTaskList())
-		}
-
-		// Handle viewport key messages
-		m.viewport, _ = m.viewport.Update(msg)
-
-		// Handle page up/down in details panel
-		if len(m.filteredTasks) > 0 && (msg.String() == "pgup" || msg.String() == "pgdn") {
-			m.detailsViewport, _ = m.detailsViewport.Update(msg)
-		}
-
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-
-		// Update viewport sizes - keep details panel width full and height at 1/3
-		m.viewport.Width = m.width - 4        // Account for padding
-		m.detailsViewport.Width = m.width - 4 // Fixed width as requested
-
-		// Calculate heights: task list uses 2/3 and details use 1/3 when there
-		// are tasks or when filter input is shown. Otherwise the task list gets
-		// the full available height.
-		if m.showingFilter || len(m.filteredTasks) > 0 {
-			m.viewport.Height = m.height * 2 / 3
-			m.detailsViewport.Height = m.height / 3
-		} else {
-			m.viewport.Height = m.height - 8
-			m.detailsViewport.Height = 0
-		}
-
-		// Update viewport content
-		m.viewport.SetContent(m.renderTaskList())
-		if len(m.filteredTasks) > 0 {
-			taskRawText := m.filteredTasks[m.selected].RawText
-			wrapped := lipgloss.NewStyle().Width(m.detailsViewport.Width).Render(taskRawText)
-			m.detailsViewport.SetContent(wrapped)
+		case "pgup", "ctrl+u":
+			m.detailsViewport, cmd = m.detailsViewport.Update(msg)
+			cmds = append(cmds, cmd)
+		case "pgdn", "ctrl+d":
+			m.detailsViewport, cmd = m.detailsViewport.Update(msg)
+			cmds = append(cmds, cmd)
+		case "ctrl+k":
+			debugLog.Printf("Scrolling details up, current yOffset: %d", m.detailsViewport.YOffset)
+			m.detailsViewport.LineUp(1)
+			debugLog.Printf("New yOffset: %d", m.detailsViewport.YOffset)
+		case "ctrl+j":
+			debugLog.Printf("Scrolling details down, current yOffset: %d", m.detailsViewport.YOffset)
+			m.detailsViewport.LineDown(1)
+			debugLog.Printf("New yOffset: %d", m.detailsViewport.YOffset)
 		}
 	}
 
-	return m, nil
+	return m, tea.Batch(cmds...)
+}
+
+func (m *Model) flattenNodes(nodes []TreeNode, depth int) {
+	for i := range nodes {
+		node := &nodes[i]
+		m.flatNodes = append(m.flatNodes, flatNode{node: node, depth: depth})
+	}
+}
+
+func (m *Model) rebuildFlatNodes() {
+	m.flatNodes = []flatNode{}
+	debugLog.Printf("Rebuilding flat nodes from %d filtered nodes", len(m.filteredNodes))
+	m.flattenNodes(m.filteredNodes, 0)
+	debugLog.Printf("Built %d flat nodes", len(m.flatNodes))
+	if m.selected >= len(m.flatNodes) {
+		m.selected = len(m.flatNodes) - 1
+	}
+	if m.selected < 0 {
+		m.selected = 0
+	}
+}
+
+func (m *Model) updateViewports() {
+	// Fixed sizes
+	const (
+		headerHeight    = 2  // Fixed header height (1 for content + 1 for margin)
+		helpHeight      = 1  // Fixed help section height
+		detailsHeight   = 15 // Fixed details panel height (including title and borders)
+		minNodesHeight  = 3  // Minimum height for nodes viewport
+		horizontalPadding = 4 // Padding for viewports (2 on each side)
+	)
+
+	// Calculate available space
+	remainingHeight := m.height - headerHeight - helpHeight - detailsHeight - 4 // -4 for padding and margins
+	if remainingHeight < minNodesHeight {
+		remainingHeight = minNodesHeight
+	}
+
+	// Set viewport dimensions
+	m.nodesViewport.Width = m.width - horizontalPadding
+	m.detailsViewport.Width = m.width - horizontalPadding
+
+	// Keep filter input width in sync with viewports so it renders full width
+	m.filterInput.Width = m.nodesViewport.Width - 2
+
+	// Set heights
+	m.nodesViewport.Height = remainingHeight
+	detailsTitleHeight := lipgloss.Height(m.renderDetailsPanelTitle())
+	m.detailsViewport.Height = detailsHeight - detailsTitleHeight - 3 // -3 for borders and padding
+
+	// Ensure node list content is set and viewport offset is valid
+	nodeList := strings.TrimSpace(m.renderNodeList())
+	if nodeList == "" {
+		nodeList = "No nodes available."
+	}
+	debugLog.Printf("Node list content length: %d", len(nodeList))
+	m.nodesViewport.SetContent(nodeList)
+	debugLog.Printf("Viewport dimensions: w=%d h=%d", m.nodesViewport.Width, m.nodesViewport.Height)
+	// make sure the viewport shows from top by default
+	m.nodesViewport.GotoTop()
+
+	m.updateDetailsViewportContent()
+}
+
+func (m *Model) updateDetailsViewportContent() {
+	if len(m.flatNodes) == 0 || m.selected < 0 || m.selected >= len(m.flatNodes) {
+		m.detailsViewport.SetContent("No node selected.")
+		return
+	}
+	selectedNode := m.flatNodes[m.selected].node
+	
+	// Create content with title
+	detailsContent := fmt.Sprintf("Item: %s\n\n%s",
+		selectedNode.Name,
+		selectedNode.Description)
+		
+	// Calculate the available width for content, accounting for borders and padding
+	contentWidth := m.detailsViewport.Width - 4 // -4 for left and right padding/borders
+	
+	// Style the content with fixed width to enable proper scrolling
+	styledContent := lipgloss.NewStyle().
+		Width(contentWidth).
+		Render(detailsContent)
+		
+	debugLog.Printf("Details content length: %d lines", strings.Count(styledContent, "\n")+1)
+	
+	m.detailsViewport.SetContent(styledContent)
+	// Preserve scroll position unless selected item changed
+	currentYOffset := m.detailsViewport.YOffset
+	if currentYOffset == 0 {
+		m.detailsViewport.GotoTop()
+	}
 }
 
 func (m Model) View() string {
@@ -308,70 +399,45 @@ func (m Model) View() string {
 		return ""
 	}
 
-	if !m.loaded {
-		return appStyle.Render("Loading...")
-	}
+	// Header - fixed at top, full width
+	header := headerStyle.
+		Width(m.width).
+		Render("Ansible Logs TUI")
 
-	if m.err != nil {
-		return appStyle.Render(fmt.Sprintf("Error: %v", m.err))
-	}
-
-	// Build the view
-	var b strings.Builder
-
-	// Title with filter input
-	title := titleStyle.Render("Ansible Tasks")
+	// Build main content area: optional filter input, nodes viewport, details panel, help
+	var sections []string
 	if m.showingFilter {
-		b.WriteString(fmt.Sprintf("%s %s\n\n", title, m.filterInput.View()))
-	} else {
-		b.WriteString(fmt.Sprintf("%s\n\n", title))
+		// show filter input above the node list
+		sections = append(sections, m.filterInput.View())
 	}
+	sections = append(sections, m.nodesViewport.View())
+	sections = append(sections, m.renderDetailsPanel())
+	sections = append(sections, helpStyle.Width(m.width-4).Render("j/k, up/down: move • ctrl+j/k: scroll details • q: quit"))
 
-	// Task list viewport
-	b.WriteString(m.viewport.View() + "\n")
+	mainContent := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
-	// Always show details panel when there are tasks
-	if len(m.filteredTasks) > 0 {
-		b.WriteString("\n" + m.renderDetailsPanel(m.filteredTasks[m.selected]) + "\n")
-	}
+	// Join header with padded content
+	finalView := lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		appStyle.Render(mainContent),
+	)
 
-	// Help text
-	helpText := "↑/↓: Navigate • Enter: Expand/Collapse • g/G: Top/Bottom • /: Filter • PgUp/PgDn: Scroll details • q/Ctrl+C: Quit"
-	if m.showingFilter {
-		helpText = "/: Filter • Esc: Cancel • Enter: Apply"
-	}
-	b.WriteString("\n" + helpStyle.Render(helpText))
-
-	return appStyle.Render(b.String())
+	return finalView
 }
 
-func (m Model) renderTaskList() string {
+func (m Model) renderNodeList() string {
 	var b strings.Builder
+	debugLog.Printf("Rendering %d nodes, selected index: %d", len(m.flatNodes), m.selected)
+	for i, flatNode := range m.flatNodes {
+		node := flatNode.node
+		indent := strings.Repeat("  ", flatNode.depth)
 
-	// Calculate visible range
-	visibleItems := m.viewport.Height - 2 // Account for padding
-	if visibleItems <= 0 {
-		visibleItems = 10 // Default value
-	}
-
-	start := m.offset
-	end := start + visibleItems
-
-	if end > len(m.filteredTasks) {
-		end = len(m.filteredTasks)
-	}
-
-	// Render visible tasks
-	for i := start; i < end; i++ {
-		task := m.filteredTasks[i]
-
-		// Format: "TASK NUMBER. TASK TITLE. TASK STATUS"
-		title := fmt.Sprintf("%d. %s", task.ID, task.Description)
-		status := strings.ToUpper(task.Status)
+		status := strings.ToUpper(node.Status)
 
 		// Style based on status
 		var statusStyle lipgloss.Style
-		switch task.Status {
+		switch node.Status {
 		case "ok":
 			statusStyle = statusOkStyle
 		case "changed":
@@ -386,106 +452,65 @@ func (m Model) renderTaskList() string {
 
 		statusStr := statusStyle.Render(status)
 
-		// Add expansion indicator
-		var indicator string
-		taskIndex := m.getIndexInOriginalTaskList(i)
-		if taskIndex != -1 && m.expanded[taskIndex] {
-			indicator = expandedStyle.Render("▼")
+		indicator := " "
+		if node.IsExpanded {
+			indicator = "▼"
 		} else {
-			indicator = collapsedStyle.Render("▶")
+			indicator = "▶"
 		}
-
-		// Highlight if selected
-		var line string
+		line := fmt.Sprintf("%s%s [%d] %s - [%s]", indent, indicator, node.ID, node.Name, statusStr)
 		if i == m.selected {
-			line = selectedStyle.Render(fmt.Sprintf("> %s %s %s", indicator, title, statusStr))
-		} else {
-			line = fmt.Sprintf("  %s %s %s", indicator, title, statusStr)
+			debugLog.Printf("Highlighting line %d: %s", i, line)
+			line = selectedStyle.Render(line)
 		}
-
 		b.WriteString(line + "\n")
-
-		// If expanded, show details in the inline view
-		if taskIndex != -1 && m.expanded[taskIndex] {
-			details := fmt.Sprintf("Host: %s\nPath: %s\nStart Time: %s\nStatus: %s",
-				task.Host,
-				task.Path,
-				task.StartTime.Format("2006-01-02 15:04:05"),
-				task.Status)
-
-			indentedDetails := detailStyle.Render(details)
-			b.WriteString(indentedDetails + "\n")
+		// If the node is expanded, show its description as an indented detail
+		if node.IsExpanded && strings.TrimSpace(node.Description) != "" {
+			descLine := fmt.Sprintf("%s  %s", indent, node.Description)
+			b.WriteString(inlineDetailStyle.Render(descLine) + "\n")
 		}
 	}
-
-	return b.String()
-}
-
-func (m Model) renderDetailsPanel(task Task) string {
-	// Create details panel
-	title := detailsTitleStyle.Render(fmt.Sprintf("Details for Task #%d: %s", task.ID, task.Description))
-
-	// Use the details viewport to show wrapped/scrollable content. If the
-	// viewport has content set (by Update on expand or window resize) use
-	// its View(); otherwise, fall back to the raw text.
-	var viewportContent string
-	if m.detailsViewport.Height > 0 && m.detailsViewport.Width > 0 {
-		viewportContent = m.detailsViewport.View()
-		// If nothing inside viewport (empty), fall back to raw text
-		if strings.TrimSpace(viewportContent) == "" {
-			// Render raw text wrapped to the viewport width
-			viewportContent = lipgloss.NewStyle().Width(m.detailsViewport.Width).Render(task.RawText)
-		}
-	} else {
-		viewportContent = task.RawText
+	content := b.String()
+	if len(content) > 0 {
+		debugLog.Printf("First line of content: %s", strings.Split(content, "\n")[0])
 	}
-
-	// Combine the title and viewport content
-	content := fmt.Sprintf("%s\n%s", title, viewportContent)
-
-	return detailsPanelStyle.Render(content)
+	return content
 }
 
-// applyFilter filters tasks based on the provided search term
+func (m Model) renderDetailsPanelTitle() string {
+	return detailsTitleStyle.Render("Details")
+}
+
+func (m Model) renderDetailsPanel() string {
+	title := m.renderDetailsPanelTitle()
+	viewportContent := m.detailsViewport.View()
+	panelContent := lipgloss.JoinVertical(lipgloss.Left, title, viewportContent)
+	return detailsPanelStyle.Width(m.width - 4).Render(panelContent)
+}
+
 func (m *Model) applyFilter(term string) {
-	term = strings.ToLower(term)
+	term = strings.TrimSpace(term)
 	if term == "" {
-		m.filteredTasks = m.tasks
-		return
-	}
-
-	var filtered []Task
-	for _, task := range m.tasks {
-		// Check against all possible fields
-		if strings.Contains(strings.ToLower(task.Description), term) ||
-			strings.Contains(strings.ToLower(task.Status), term) ||
-			strings.Contains(strings.ToLower(task.Host), term) ||
-			strings.Contains(strings.ToLower(task.Path), term) ||
-			strings.Contains(task.StartTime.Format("2006-01-02 15:04:05"), term) ||
-			strings.Contains(task.StartTime.Format("2006-01-02"), term) ||
-			strings.Contains(task.StartTime.Format("15:04:05"), term) ||
-			strings.Contains(strings.ToLower(task.Diff), term) ||
-			strings.Contains(strings.ToLower(task.RawText), term) {
-			filtered = append(filtered, task)
+		m.filteredNodes = m.nodes
+	} else {
+		var filtered []TreeNode
+		for _, n := range m.nodes {
+			if fuzzyMatch(term, n.Name) || fuzzyMatch(term, n.Description) {
+				filtered = append(filtered, n)
+			}
 		}
+		m.filteredNodes = filtered
 	}
+	m.rebuildFlatNodes()
 
-	m.filteredTasks = filtered
+	// Reset selection and viewport to top when applying a filter
+	if len(m.flatNodes) == 0 {
+		m.selected = 0
+	} else if m.selected >= len(m.flatNodes) {
+		m.selected = len(m.flatNodes) - 1
+	}
+	m.nodesViewport.SetContent(strings.TrimSpace(m.renderNodeList()))
+	m.nodesViewport.GotoTop()
 }
 
-// getIndexInOriginalTaskList gets the index of the filtered task in the original tasks list
-func (m *Model) getIndexInOriginalTaskList(filteredIndex int) int {
-	if filteredIndex < 0 || filteredIndex >= len(m.filteredTasks) {
-		return -1
-	}
 
-	task := m.filteredTasks[filteredIndex]
-
-	for i, originalTask := range m.tasks {
-		if originalTask.ID == task.ID {
-			return i
-		}
-	}
-
-	return -1
-}
