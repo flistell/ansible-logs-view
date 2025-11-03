@@ -2,9 +2,6 @@ package app
 
 import (
 	"fmt"
-	"io"
-	"log"
-	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -13,25 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var debugLog *log.Logger
-
-func setupLogger(enableDebug bool) {
-	if enableDebug {
-		// Open debug.log file
-		logFile, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-		if err != nil {
-			fmt.Printf("Error opening debug.log: %v\n", err)
-			return
-		}
-
-		// Initialize the logger
-		debugLog = log.New(logFile, "", log.Ldate|log.Ltime|log.Lmicroseconds)
-		debugLog.Println("=== Application Started ===")
-	} else {
-		// If debug is not enabled, set debugLog to a no-op logger
-		debugLog = log.New(io.Discard, "", 0)
-	}
-}
+// package-level logger is provided from logger.go
 
 
 

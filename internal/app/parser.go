@@ -14,8 +14,13 @@ type LogParser struct {
 	tasks []Task
 }
 
+
+// logger initialization is centralized in logger.go
+
+
 // NewLogParser creates a new LogParser instance
-func NewLogParser() *LogParser {
+func NewLogParser(enableDebug bool) *LogParser {
+	setupLogger(enableDebug)
 	return &LogParser{
 		tasks: make([]Task, 0),
 	}
@@ -28,13 +33,6 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 		return nil, fmt.Errorf("error opening file: %v", err)
 	}
 	defer file.Close()
-
-	// Open debug log file
-	debugFile, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return nil, fmt.Errorf("error opening debug log file: %v", err)
-	}
-	defer debugFile.Close()
 
 	scanner := bufio.NewScanner(file)
 	var currentTask *Task
@@ -82,7 +80,7 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 					}
 				}
 				// Log the task before appending to tasks
-				debugLog := fmt.Sprintf("Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 100 chars): %s\n\n",
+				debugLog.Printf("Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 100 chars): %s\n\n",
 					currentTask.ID, currentTask.Description, currentTask.Status, currentTask.Host, 
 					currentTask.Path, currentTask.StartTime.Format("2006-01-02 15:04:05"), 
 					currentTask.Diff, 
@@ -92,7 +90,6 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 						}
 						return currentTask.RawText
 					}())
-				debugFile.WriteString(debugLog)
 				
 				p.tasks = append(p.tasks, *currentTask)
 			}
@@ -226,7 +223,7 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 			}
 		}
 		// Log the last task
-		debugLog := fmt.Sprintf("Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 1000 chars): %s\n\n",
+		debugLog.Printf("Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 1000 chars): %s\n\n",
 			currentTask.ID, currentTask.Description, currentTask.Status, currentTask.Host, 
 			currentTask.Path, currentTask.StartTime.Format("2006-01-02 15:04:05"), 
 			currentTask.Diff, 
@@ -236,7 +233,6 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 				}
 				return currentTask.RawText
 			}())
-		debugFile.WriteString(debugLog)
 		
 		p.tasks = append(p.tasks, *currentTask)
 	}
