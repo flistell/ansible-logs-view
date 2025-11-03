@@ -1,0 +1,25 @@
+FROM rockylinux:8
+
+# Disable proxy
+ENV http_proxy=""
+ENV https_proxy=""
+
+# Install necessary packages
+RUN yum update -y && \
+    yum install -y wget tar gzip && \
+    yum clean all
+
+# Install Go
+ENV GO_VERSION=1.25.3
+RUN wget https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz && \
+    rm go${GO_VERSION}.linux-amd64.tar.gz
+ENV PATH=$PATH:/usr/local/go/bin
+
+# Set up the build environment
+WORKDIR /app
+COPY . .
+
+RUN rpm -qa | grep glib
+# Build the application
+RUN go build -o ansible-logs-view-glibc-2.28 ./cmd/ansible-logs-view

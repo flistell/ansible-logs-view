@@ -327,43 +327,46 @@ func (m *Model) rebuildFlatNodes() {
 func (m *Model) updateViewports() {
 	// Fixed sizes
 	const (
-		headerHeight    = 2  // Fixed header height (1 for content + 1 for margin)
-		helpHeight      = 1  // Fixed help section height
-		detailsHeight   = 15 // Fixed details panel height (including title and borders)
-		minNodesHeight  = 3  // Minimum height for nodes viewport
-		horizontalPadding = 4 // Padding for viewports (2 on each side)
+		headerHeight    = 2
+		helpHeight      = 1
+		detailsHeight   = 15
+		minNodesHeight  = 3
+		horizontalPadding = 4
 	)
 
 	// Calculate available space
-	debugLog.Printf("Calculating viewport sizes with terminal height: %d", m.height)
-	debugLog.Printf("Expanded node count: %d", expandedNodeCount)
-	remainingHeight := m.height - headerHeight - helpHeight - detailsHeight - 4 // -4 for padding and margins
+	remainingHeight := m.height - headerHeight - helpHeight - detailsHeight - 4
 	if remainingHeight < minNodesHeight {
 		remainingHeight = minNodesHeight
 	}
-	debugLog.Printf("Calculated remaining height for nodes viewport: %d", remainingHeight)
 
-	// Set viewport dimensions
-	m.nodesViewport.Width = m.width - horizontalPadding
-	m.detailsViewport.Width = m.width - horizontalPadding
-
-	// Keep filter input width in sync with viewports so it renders full width
-	m.filterInput.Width = m.nodesViewport.Width - 2
-
-	// Set heights
-	m.nodesViewport.Height = remainingHeight
-	detailsTitleHeight := lipgloss.Height(m.renderDetailsPanelTitle())
-	m.detailsViewport.Height = detailsHeight - detailsTitleHeight - 3 // -3 for borders and padding
-
-	// Ensure node list content is set and viewport offset is valid
+	// Render node list to get its height
 	nodeList := strings.TrimSpace(m.renderNodeList())
 	if nodeList == "" {
 		nodeList = "No nodes available."
 	}
-	debugLog.Printf("Node list content length: %d", len(nodeList))
+	nodeListHeight := strings.Count(nodeList, "\n") + 1
+
+	// Adjust nodesViewport height
+	nodesViewportHeight := remainingHeight
+	if nodeListHeight < remainingHeight {
+		nodesViewportHeight = nodeListHeight
+	}
+
+	// Set viewport dimensions
+	m.nodesViewport.Width = m.width - horizontalPadding
+	m.nodesViewport.Height = nodesViewportHeight
+	m.detailsViewport.Width = m.width - horizontalPadding
+
+	// Keep filter input width in sync with viewports
+	m.filterInput.Width = m.nodesViewport.Width - 2
+
+	// Set details viewport height
+	detailsTitleHeight := lipgloss.Height(m.renderDetailsPanelTitle())
+	m.detailsViewport.Height = detailsHeight - detailsTitleHeight - 3
+
+	// Set content
 	m.nodesViewport.SetContent(nodeList)
-	debugLog.Printf("Viewport dimensions: w=%d h=%d", m.nodesViewport.Width, m.nodesViewport.Height)
-	// make sure the viewport shows from top by default
 	m.nodesViewport.GotoTop()
 
 	m.updateDetailsViewportContent()
