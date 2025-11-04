@@ -14,9 +14,7 @@ type LogParser struct {
 	tasks []Task
 }
 
-
 // logger initialization is centralized in logger.go
-
 
 // NewLogParser creates a new LogParser instance
 func NewLogParser(enableDebug bool) *LogParser {
@@ -43,16 +41,16 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 	pathRegex := regexp.MustCompile(`task path: (.*)`)
 	// Time format: Tuesday 28 October 2025  02:05:23 +0100
 	timeRegex := regexp.MustCompile(`^(\w+) (\d+) (\w+) (\d+)  (\d+):(\d+):(\d+)`)
-	
+
 	// Status regexes
 	okRegex := regexp.MustCompile(`^ok: \[(.*?)\]`)
 	changedRegex := regexp.MustCompile(`^changed: \[(.*?)\]`)
 	skippingRegex := regexp.MustCompile(`^skipping: \[(.*?)\]`)
 	failedRegex := regexp.MustCompile(`^failed: \[(.*?)\]`)
-	
+
 	// Diff regexes
 	diffStartRegex := regexp.MustCompile(`^--- before:`)
-	
+
 	// Map month names to numbers for parsing
 	monthMap := map[string]string{
 		"January": "01", "February": "02", "March": "03", "April": "04",
@@ -80,27 +78,27 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 					}
 				}
 				// Log the task before appending to tasks
-				debugLog.Printf("Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 100 chars): %s\n\n",
-					currentTask.ID, currentTask.Description, currentTask.Status, currentTask.Host, 
-					currentTask.Path, currentTask.StartTime.Format("2006-01-02 15:04:05"), 
-					currentTask.Diff, 
+				debugLog.Printf("ParseTask() - Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 100 chars): %s\n\n",
+					currentTask.ID, currentTask.Description, currentTask.Status, currentTask.Host,
+					currentTask.Path, currentTask.StartTime.Format("2006-01-02 15:04:05"),
+					currentTask.Diff,
 					func() string {
 						if len(currentTask.RawText) > 100 {
 							return currentTask.RawText[:100] + "..."
 						}
 						return currentTask.RawText
 					}())
-				
+
 				p.tasks = append(p.tasks, *currentTask)
 			}
-			
+
 			// Reset diff lines for the new task
 			diffLines = nil
-			
+
 			currentTask = &Task{
 				ID:          taskID,
 				Description: strings.TrimSpace(taskRegex.FindStringSubmatch(line)[1]),
-				Status:      "unknown", // Default status
+				Status:      "unknown",   // Default status
 				RawText:     line + "\n", // Start building raw text with the task header
 			}
 			taskID++
@@ -121,13 +119,13 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 			diffLines = []string{line}
 			continue
 		}
-		
+
 		// If we're in a diff section, collect lines until we hit a blank line or task separator
 		if inDiffSection {
 			// End of diff section when we hit a blank line, task separator, or status line
-			if line == "" || strings.HasPrefix(line, "TASK [") || 
-			   strings.HasPrefix(line, "ok:") || strings.HasPrefix(line, "changed:") ||
-			   strings.HasPrefix(line, "skipping:") || strings.HasPrefix(line, "failed:") {
+			if line == "" || strings.HasPrefix(line, "TASK [") ||
+				strings.HasPrefix(line, "ok:") || strings.HasPrefix(line, "changed:") ||
+				strings.HasPrefix(line, "skipping:") || strings.HasPrefix(line, "failed:") {
 				// Save the diff to the current task
 				if len(diffLines) > 0 {
 					if currentTask.Diff != "" {
@@ -138,7 +136,7 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 				}
 				inDiffSection = false
 				diffLines = nil
-				
+
 				// If this was a new task, we've already processed it above
 				if strings.HasPrefix(line, "TASK [") {
 					continue
@@ -165,13 +163,13 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 			hour := matches[5]
 			minute := matches[6]
 			second := matches[7]
-			
+
 			// Convert month name to number
 			monthNum := monthMap[monthStr]
 			if monthNum == "" {
 				monthNum = "01" // Default to January
 			}
-			
+
 			// Format: 2025-10-28 02:05:23
 			timeStr := fmt.Sprintf("%s-%s-%s %s:%s:%s", year, monthNum, day, hour, minute, second)
 			if t, err := time.Parse("2006-01-02 15:04:05", timeStr); err == nil {
@@ -223,17 +221,17 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 			}
 		}
 		// Log the last task
-		debugLog.Printf("Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 1000 chars): %s\n\n",
-			currentTask.ID, currentTask.Description, currentTask.Status, currentTask.Host, 
-			currentTask.Path, currentTask.StartTime.Format("2006-01-02 15:04:05"), 
-			currentTask.Diff, 
+		debugLog.Printf("ParseTask() - Task ID: %d\nDescription: %s\nStatus: %s\nHost: %s\nPath: %s\nStartTime: %s\nDiff: %s\nRawText (first 1000 chars): %s\n\n",
+			currentTask.ID, currentTask.Description, currentTask.Status, currentTask.Host,
+			currentTask.Path, currentTask.StartTime.Format("2006-01-02 15:04:05"),
+			currentTask.Diff,
 			func() string {
 				if len(currentTask.RawText) > 1000 {
 					return currentTask.RawText[:1000] + "..."
 				}
 				return currentTask.RawText
 			}())
-		
+
 		p.tasks = append(p.tasks, *currentTask)
 	}
 

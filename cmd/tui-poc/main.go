@@ -145,10 +145,10 @@ func newModel() model {
 	items, err := readTestItems("/home/fl118890/Workspace/code/tui-poc/testdata/testitems.txt")
 	if err != nil {
 		// If we can't read the file, start with an empty list
-		debugLog.Printf("Error reading test items: %v", err)
+		debugLog.Printf("main() - Error reading test items: %v", err)
 		items = []TestItem{}
 	}
-	debugLog.Printf("Found %d items", len(items))
+	debugLog.Printf("main() - Found %d items", len(items))
 	
 	nodes := convertItemsToNodes(items)
 	debugLog.Printf("Converted to %d nodes", len(nodes))

@@ -13,12 +13,8 @@ import (
 
 // package-level logger is provided from logger.go
 
-
-
 var (
 	appStyle = lipgloss.NewStyle().Padding(1, 2)
-
-	expandedNodeCount int
 
 	headerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFDF5")).
@@ -71,11 +67,11 @@ type TreeNode struct {
 	Name        string
 	Description string
 	StartTime   time.Time
-	Status      string 
+	Status      string
 	Host        string
 	Path        string
-	Diff        string 
-	RawText     string 
+	Diff        string
+	RawText     string
 	IsExpanded  bool
 }
 
@@ -84,8 +80,6 @@ type flatNode struct {
 	node  *TreeNode
 	depth int
 }
-
-
 
 // Convert tasks to tree nodes
 func convertTasksToNodes(tasks []Task) []TreeNode {
@@ -97,10 +91,10 @@ func convertTasksToNodes(tasks []Task) []TreeNode {
 			Description: task.RawText,
 			StartTime:   task.StartTime,
 			Status:      task.Status,
-			Host:       task.Host,
-			Path:       task.Path,
-			Diff:       task.Diff,
-			RawText:    task.RawText,
+			Host:        task.Host,
+			Path:        task.Path,
+			Diff:        task.Diff,
+			RawText:     task.RawText,
 			IsExpanded:  false,
 		}
 	}
@@ -131,37 +125,43 @@ func fuzzyMatch(pattern, s string) bool {
 	}
 	return true
 }
+
 // Model represents the TUI state (PoC)
 type Model struct {
-	nodes           []TreeNode
-	filteredNodes   []TreeNode
-	flatNodes       []flatNode // All visible nodes in a flat list
-	selected        int
-	width           int
-	height          int
-	loaded          bool
-	err             error
-	quitting        bool
-	nodesViewport   viewport.Model
-	detailsViewport viewport.Model
-	filterInput     textinput.Model
-	showingFilter   bool
+	nodes             []TreeNode
+	filteredNodes     []TreeNode
+	flatNodes         []flatNode // All visible nodes in a flat list
+	selected          int
+	width             int
+	height            int
+	loaded            bool
+	err               error
+	quitting          bool
+	nodesViewport     viewport.Model
+	detailsViewport   viewport.Model
+	helpTextViewport  viewport.Model
+	filterInput       textinput.Model
+	showingFilter     bool
+	expandedNodeCount int
+	expandedNodeSize  int
+	helpText          string
 }
 
 func NewModel(tasks []Task, enableDebug bool) Model {
 	setupLogger(enableDebug)
-	debugLog.Printf("Received %d tasks", len(tasks))
+	debugLog.Printf("NewModel() - Received %d tasks", len(tasks))
 
 	nodes := convertTasksToNodes(tasks)
-	debugLog.Printf("Converted to %d nodes", len(nodes))
+	debugLog.Printf("NewModel() - Converted to %d nodes", len(nodes))
 
-	nodesVp := viewport.New(0, 0) // Let updateViewports set the dimensions
+	nodesVp := viewport.New(0, 0)            // Let updateViewports set the dimensions
 	nodesVp.HighPerformanceRendering = false // Try without high performance mode
 
 	detailsVp := viewport.New(0, 0)
 	detailsVp.HighPerformanceRendering = false
 
-	expandedNodeCount = 0
+	helpVp := viewport.New(0, 0)
+	helpVp.HighPerformanceRendering = false
 
 	ti := textinput.New()
 	ti.Placeholder = "Filter..."
@@ -170,25 +170,29 @@ func NewModel(tasks []Task, enableDebug bool) Model {
 	ti.Width = 30
 
 	m := Model{
-		nodes:           nodes,
-		selected:        0,
-		width:           80,
-		height:          24,
-		loaded:          true,
-		nodesViewport:   nodesVp,
-		detailsViewport: detailsVp,
-		filterInput:     ti,
+		nodes:             nodes,
+		selected:          0,
+		width:             80,
+		height:            24,
+		loaded:            true,
+		nodesViewport:     nodesVp,
+		detailsViewport:   detailsVp,
+		helpTextViewport:  helpVp,
+		filterInput:       ti,
+		helpText:          "j/k, up/down: move • ctrl+j/k: scroll details • /: filter • g/G: go to first/last line • q: quit",
+		expandedNodeCount: 0,
+		expandedNodeSize:  4,
 	}
-	
+
 	// Initialize the filtered nodes and build flat nodes
 	m.filteredNodes = nodes
 	m.rebuildFlatNodes()
-	
+
 	// Update viewports to set dimensions and content
 	m.updateViewports()
-	
-	debugLog.Printf("Initial viewport content length: %d", len(m.nodesViewport.View()))
-	
+
+	debugLog.Printf("NewModel() - Initial viewport content length: %d", len(m.nodesViewport.View()))
+
 	return m
 }
 
@@ -229,8 +233,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filterInput, cmd = m.filterInput.Update(msg)
 				// apply filter as-you-type
 				m.applyFilter(m.filterInput.Value())
-				// update viewport content without full resize
-				m.nodesViewport.SetContent(strings.TrimSpace(m.renderNodeList()))
+				// update viewport content without full resize (reset to top)
+				m.setNodeListContentFrom(strings.TrimSpace(m.renderNodeList()))
 				return m, cmd
 			}
 		}
@@ -246,23 +250,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.selected > 0 {
 				m.selected--
-				debugLog.Printf("Moving up, new selected index: %d", m.selected)
+				debugLog.Printf("Update() - Moving up, new selected index: %d", m.selected)
 				if m.selected < m.nodesViewport.YOffset {
 					m.nodesViewport.SetYOffset(m.selected)
 				}
 				nodeList := m.renderNodeList()
-				m.nodesViewport.SetContent(nodeList)
+				// set content but preserve the Y offset that was just adjusted above
+				m.setNodeListContentPreserve(nodeList)
 				m.updateDetailsViewportContent()
 			}
 		case "down", "j":
 			if m.selected < len(m.flatNodes)-1 {
 				m.selected++
-				debugLog.Printf("Moving down, new selected index: %d", m.selected)
-				if m.selected >= m.nodesViewport.YOffset+m.nodesViewport.Height {
-					m.nodesViewport.SetYOffset(m.selected - m.nodesViewport.Height + 1)
+				debugLog.Printf("Update() - Moving down, new selected index: %d", m.selected)
+				debugLog.Printf("Update() - Before adjust: selected: %d, Y offset: %d, Height: %d", m.selected,m.nodesViewport.YOffset, m.nodesViewport.Height)
+				if m.selected + (m.expandedNodeCount * m.expandedNodeSize) >= m.nodesViewport.YOffset+m.nodesViewport.Height {
+					m.nodesViewport.SetYOffset(m.selected - m.nodesViewport.Height + (m.expandedNodeCount * m.expandedNodeSize) + 1)
 				}
+				debugLog.Printf("Update() - After adjust Y offset: %d, Height: %d", m.nodesViewport.YOffset, m.nodesViewport.Height)
 				nodeList := m.renderNodeList()
-				m.nodesViewport.SetContent(nodeList)
+				// set content but preserve the Y offset that was just adjusted above
+				m.setNodeListContentPreserve(nodeList)
 				m.updateDetailsViewportContent()
 			}
 		case "enter", "return", " ":
@@ -273,16 +281,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.rebuildFlatNodes()
 				m.updateViewports()
 				m.selected = oldSelected
+				// Ensure selected node is visible after expand/collapse
+				if m.selected + (m.expandedNodeCount * m.expandedNodeSize) >= m.nodesViewport.YOffset+m.nodesViewport.Height {
+					m.nodesViewport.SetYOffset(m.selected - m.nodesViewport.Height + (m.expandedNodeCount * m.expandedNodeSize) + 1)
+				}
 			}
 		case "g":
-			m.selected = 0
 			m.nodesViewport.GotoTop()
-			m.updateDetailsViewportContent()
+			m.selected = 0
+			m.updateViewports()
 		case "G":
 			if len(m.flatNodes) > 0 {
-				m.selected = len(m.flatNodes) - 1
 				m.nodesViewport.GotoBottom()
-				m.updateDetailsViewportContent()
+				m.selected = len(m.flatNodes) - 1
+				m.updateViewports()
+				if m.selected + (m.expandedNodeCount * m.expandedNodeSize) >= m.nodesViewport.YOffset+m.nodesViewport.Height {
+					m.nodesViewport.SetYOffset(m.selected - m.nodesViewport.Height + (m.expandedNodeCount * m.expandedNodeSize) + 1)
+				}
 			}
 		case "pgup", "ctrl+u":
 			m.detailsViewport, cmd = m.detailsViewport.Update(msg)
@@ -291,13 +306,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.detailsViewport, cmd = m.detailsViewport.Update(msg)
 			cmds = append(cmds, cmd)
 		case "ctrl+k":
-			debugLog.Printf("Scrolling details up, current yOffset: %d", m.detailsViewport.YOffset)
-			m.detailsViewport.LineUp(1)
-			debugLog.Printf("New yOffset: %d", m.detailsViewport.YOffset)
+			debugLog.Printf("Update() - Scrolling details up, current yOffset: %d", m.detailsViewport.YOffset)
+			m.detailsViewport.ScrollUp(1)
+			debugLog.Printf("Update() - New yOffset: %d", m.detailsViewport.YOffset)
 		case "ctrl+j":
-			debugLog.Printf("Scrolling details down, current yOffset: %d", m.detailsViewport.YOffset)
-			m.detailsViewport.LineDown(1)
-			debugLog.Printf("New yOffset: %d", m.detailsViewport.YOffset)
+			debugLog.Printf("Update() - Scrolling details down, current yOffset: %d", m.detailsViewport.YOffset)
+			m.detailsViewport.ScrollDown(1)
+			debugLog.Printf("Update() - New yOffset: %d", m.detailsViewport.YOffset)
 		}
 	}
 
@@ -313,9 +328,17 @@ func (m *Model) flattenNodes(nodes []TreeNode, depth int) {
 
 func (m *Model) rebuildFlatNodes() {
 	m.flatNodes = []flatNode{}
-	debugLog.Printf("Rebuilding flat nodes from %d filtered nodes", len(m.filteredNodes))
+	debugLog.Printf("rebuildFlatNodes() - Rebuilding flat nodes from %d filtered nodes", len(m.filteredNodes))
 	m.flattenNodes(m.filteredNodes, 0)
-	debugLog.Printf("Built %d flat nodes", len(m.flatNodes))
+	debugLog.Printf("rebuildFlatNodes() - Built %d flat nodes", len(m.flatNodes))
+	// Recompute expanded node count based on the flattened nodes so the value
+	// is preserved on the model (don't mutate it from render functions).
+	m.expandedNodeCount = 0
+	for _, fn := range m.flatNodes {
+		if fn.node.IsExpanded {
+			m.expandedNodeCount++
+		}
+	}
 	if m.selected >= len(m.flatNodes) {
 		m.selected = len(m.flatNodes) - 1
 	}
@@ -327,14 +350,15 @@ func (m *Model) rebuildFlatNodes() {
 func (m *Model) updateViewports() {
 	// Fixed sizes
 	const (
-		headerHeight    = 2
-		helpHeight      = 1
-		detailsHeight   = 15
-		minNodesHeight  = 3
+		headerHeight      = 2
+		helpHeight        = 1
+		detailsHeight     = 15
+		minNodesHeight    = 3
 		horizontalPadding = 4
 	)
 
 	// Calculate available space
+	debugLog.Printf("updateViewports() - Calculating viewports with expandedNodeCount: %d", m.expandedNodeCount)
 	remainingHeight := m.height - headerHeight - helpHeight - detailsHeight - 4
 	if remainingHeight < minNodesHeight {
 		remainingHeight = minNodesHeight
@@ -353,23 +377,74 @@ func (m *Model) updateViewports() {
 		nodesViewportHeight = nodeListHeight
 	}
 
-	// Set viewport dimensions
+	// Debug logging: viewport sizes
+	debugLog.Printf("updateViewports() - Viewport sizes - total height: %d, nodesViewportHeight: %d, detailsHeight: %d",
+		m.height, nodesViewportHeight, detailsHeight)
+
+	// Assign viewport dimensions and content using helper methods
+	m.assignViewportDimensions(horizontalPadding, nodesViewportHeight, detailsHeight)
+	m.setNodeListContentFrom(nodeList)
+	m.updateDetailsViewportContent()
+
+	m.helpTextViewport.SetContent(m.renderHelpLine())
+}
+
+// assignViewportDimensions sets width/height on viewports and syncs input width.
+func (m *Model) assignViewportDimensions(horizontalPadding, nodesViewportHeight, detailsHeight int) {
 	m.nodesViewport.Width = m.width - horizontalPadding
 	m.nodesViewport.Height = nodesViewportHeight
 	m.detailsViewport.Width = m.width - horizontalPadding
 
 	// Keep filter input width in sync with viewports
-	m.filterInput.Width = m.nodesViewport.Width - 2
+	if m.nodesViewport.Width >= 2 {
+		m.filterInput.Width = m.nodesViewport.Width - 2
+	} else {
+		m.filterInput.Width = m.nodesViewport.Width
+	}
 
-	// Set details viewport height
+	// Set details viewport height (account for title and padding)
 	detailsTitleHeight := lipgloss.Height(m.renderDetailsPanelTitle())
-	m.detailsViewport.Height = detailsHeight - detailsTitleHeight - 3
+	h := detailsHeight - detailsTitleHeight - 3
+	if h < 0 {
+		h = 0
+	}
+	m.detailsViewport.Height = h
+}
 
-	// Set content
+// setNodeListContentFrom sets the rendered node list into the nodes viewport
+// and ensures the viewport offset is in a sane state.
+func (m *Model) setNodeListContentFrom(nodeList string) {
+	if strings.TrimSpace(nodeList) == "" {
+		nodeList = "No nodes available."
+	}
+	debugLog.Printf("setNodeListContentFrom() - Node list content length: %d", len(nodeList))
 	m.nodesViewport.SetContent(nodeList)
+	debugLog.Printf("setNodeListContentFrom() - Viewport dimensions: w=%d h=%d", m.nodesViewport.Width, m.nodesViewport.Height)
 	m.nodesViewport.GotoTop()
+}
 
-	m.updateDetailsViewportContent()
+// setNodeListContentPreserve sets node list content but preserves current Y offset
+// (useful when callers adjust YOffset before updating content).
+func (m *Model) setNodeListContentPreserve(nodeList string) {
+	if strings.TrimSpace(nodeList) == "" {
+		nodeList = "No nodes available."
+	}
+	// capture current offset (may have been adjusted by caller)
+	cur := m.nodesViewport.YOffset
+	m.nodesViewport.SetContent(nodeList)
+	// Ensure offset is within valid range given new content height
+	maxOffset := 0
+	lines := strings.Count(nodeList, "\n") + 1
+	if lines > m.nodesViewport.Height {
+		maxOffset = lines - m.nodesViewport.Height
+	}
+	if cur > maxOffset {
+		cur = maxOffset
+	}
+	if cur < 0 {
+		cur = 0
+	}
+	m.nodesViewport.SetYOffset(cur)
 }
 
 func (m *Model) updateDetailsViewportContent() {
@@ -378,22 +453,22 @@ func (m *Model) updateDetailsViewportContent() {
 		return
 	}
 	selectedNode := m.flatNodes[m.selected].node
-	
+
 	// Create content with title
 	detailsContent := fmt.Sprintf("Item: %s\n\n%s",
 		selectedNode.Name,
 		selectedNode.Description)
-		
+
 	// Calculate the available width for content, accounting for borders and padding
 	contentWidth := m.detailsViewport.Width - 4 // -4 for left and right padding/borders
-	
+
 	// Style the content with fixed width to enable proper scrolling
 	styledContent := lipgloss.NewStyle().
 		Width(contentWidth).
 		Render(detailsContent)
-		
-	debugLog.Printf("Details content length: %d lines", strings.Count(styledContent, "\n")+1)
-	
+
+	debugLog.Printf("updateDetailsViewportContent() - Details content length: %d lines", strings.Count(styledContent, "\n")+1)
+
 	m.detailsViewport.SetContent(styledContent)
 	// Preserve scroll position unless selected item changed
 	currentYOffset := m.detailsViewport.YOffset
@@ -420,7 +495,7 @@ func (m Model) View() string {
 	}
 	sections = append(sections, m.nodesViewport.View())
 	sections = append(sections, m.renderDetailsPanel())
-	sections = append(sections, helpStyle.Width(m.width-4).Render("j/k, up/down: move • ctrl+j/k: scroll details • q: quit"))
+	sections = append(sections, m.renderHelpLine())
 
 	mainContent := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
@@ -434,10 +509,18 @@ func (m Model) View() string {
 	return finalView
 }
 
+func (m *Model) renderHelpLine() string {
+	debugLog.Printf("renderHelpLine() - Rendering help line with %d expanded nodes", m.expandedNodeCount)
+	viewportContent := m.helpTextViewport.View()
+	contentText := fmt.Sprintf("%s", m.helpText)
+	content := lipgloss.JoinVertical(lipgloss.Left, contentText, viewportContent)
+	return helpStyle.Width(m.width - 4).Render(content)
+}
+
 func (m Model) renderNodeList() string {
 	var b strings.Builder
-	debugLog.Printf("Rendering %d nodes, selected index: %d", len(m.flatNodes), m.selected)
-	expandedNodeCount = 0
+	debugLog.Printf("renderNodeList() - Rendering %d nodes, selected index: %d", len(m.flatNodes), m.selected)
+	// Use a local counter when rendering so we don't mutate model state here.
 	for i, flatNode := range m.flatNodes {
 		node := flatNode.node
 		indent := strings.Repeat("  ", flatNode.depth)
@@ -464,32 +547,32 @@ func (m Model) renderNodeList() string {
 		indicator := " "
 		if node.IsExpanded {
 			indicator = "▼"
-			expandedNodeCount++
 		} else {
 			indicator = "▶"
 		}
 		line := fmt.Sprintf("%s%s [%d] %s - [%s]", indent, indicator, node.ID, node.Name, statusStr)
 		if i == m.selected {
-			debugLog.Printf("Highlighting line %d: %s", i, line)
+			debugLog.Printf("renderNodeList() - Highlighting line %d: %s", i, line)
 			selectedLineStyle := selectedStyle.Copy().Width(m.width - 4)
 			line = selectedLineStyle.Render(line)
 		}
 		b.WriteString(line + "\n")
 		// If the node is expanded, show its description as an indented detail
 		if node.IsExpanded && strings.TrimSpace(node.Description) != "" {
-			descLine := fmt.Sprintf("Host: %s\nPath: %s\nStart Time: %s\nStatus: %s", 
-				node.Host, 
-				node.Path, 
-				node.StartTime.Format("2006-01-02 15:04:05"), 
+			descLine := fmt.Sprintf("Host: %s\nPath: %s\nStart Time: %s\nStatus: %s",
+				node.Host,
+				node.Path,
+				node.StartTime.Format("2006-01-02 15:04:05"),
 				node.Status)
-			
+
 			b.WriteString(inlineDetailStyle.Render(descLine) + "\n")
 		}
 	}
 	content := b.String()
 	if len(content) > 0 {
-		debugLog.Printf("First line of content: %s", strings.Split(content, "\n")[0])
+		debugLog.Printf("renderNodeList() - First line of content: %s", strings.Split(content, "\n")[0])
 	}
+	debugLog.Printf("renderNodeList() - Computed expanded nodes in model %d", m.expandedNodeCount)
 	return content
 }
 
@@ -528,5 +611,3 @@ func (m *Model) applyFilter(term string) {
 	m.nodesViewport.SetContent(strings.TrimSpace(m.renderNodeList()))
 	m.nodesViewport.GotoTop()
 }
-
-
