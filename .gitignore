@@ -5,3 +5,4 @@ debug.log
 .qwen
 *.old
 *.zip
+ansible-sample.out

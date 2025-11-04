@@ -27,11 +27,11 @@ var (
 			Foreground(lipgloss.Color("#FFFDF5")).
 			Bold(true)
 
-	statusOkStyle       = statusStyle.Copy().Background(lipgloss.Color("#25A065"))
-	statusChangedStyle  = statusStyle.Copy().Background(lipgloss.Color("#FFA500"))
-	statusSkippingStyle = statusStyle.Copy().Background(lipgloss.Color("#888888"))
-	statusFailedStyle   = statusStyle.Copy().Background(lipgloss.Color("#FF0000"))
-	statusUnknownStyle  = statusStyle.Copy().Background(lipgloss.Color("#888888"))
+	statusOkStyle       = statusStyle.Background(lipgloss.Color("#25A065"))
+	statusChangedStyle  = statusStyle.Background(lipgloss.Color("#FFA500"))
+	statusSkippingStyle = statusStyle.Background(lipgloss.Color("#888888"))
+	statusFailedStyle   = statusStyle.Background(lipgloss.Color("#FF0000"))
+	statusUnknownStyle  = statusStyle.Background(lipgloss.Color("#888888"))
 
 	selectedStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("#25A065")).
@@ -536,7 +536,7 @@ func (m Model) renderNodeList() string {
 			statusStyle = statusChangedStyle
 		case "skipping":
 			statusStyle = statusSkippingStyle
-		case "failed":
+		case "failed", "fatal":
 			statusStyle = statusFailedStyle
 		default:
 			statusStyle = statusUnknownStyle
@@ -587,15 +587,52 @@ func (m Model) renderDetailsPanel() string {
 	return detailsPanelStyle.Width(m.width - 4).Render(panelContent)
 }
 
+
 func (m *Model) applyFilter(term string) {
+	term = strings.ToLower(term)
+	if term == "" {
+		m.filteredNodes = m.nodes
+	} else {
+		var filtered []TreeNode
+		for _, n := range m.nodes {
+			// Check against all possible fields
+			if strings.Contains(strings.ToLower(n.Name), term) ||
+				strings.Contains(strings.ToLower(n.Status), term) ||
+				strings.Contains(strings.ToLower(n.Host), term) ||
+				strings.Contains(strings.ToLower(n.Path), term) ||
+				strings.Contains(n.StartTime.Format("2006-01-02 15:04:05"), term) ||
+				strings.Contains(n.StartTime.Format("2006-01-02"), term) ||
+				strings.Contains(n.StartTime.Format("15:04:05"), term) {
+					filtered = append(filtered, n)
+				}
+			}
+		m.filteredNodes = filtered
+	}
+	m.rebuildFlatNodes()
+
+	// Reset selection and viewport to top when applying a filter
+	if len(m.flatNodes) == 0 {
+		m.selected = 0
+	} else if m.selected >= len(m.flatNodes) {
+		m.selected = len(m.flatNodes) - 1
+	}
+	m.nodesViewport.SetContent(strings.TrimSpace(m.renderNodeList()))
+	m.nodesViewport.GotoTop()
+}
+
+func (m *Model) applyFuzzyFilter(term string) {
 	term = strings.TrimSpace(term)
 	if term == "" {
 		m.filteredNodes = m.nodes
 	} else {
 		var filtered []TreeNode
 		for _, n := range m.nodes {
-			if fuzzyMatch(term, n.Name) || fuzzyMatch(term, n.Description) {
-				filtered = append(filtered, n)
+			if fuzzyMatch(term, n.Name) || 
+				fuzzyMatch(term, n.Status) || 
+				fuzzyMatch(term, n.Host) || 
+				fuzzyMatch(term, n.Path) || 
+				fuzzyMatch(term, n.StartTime.Format("2006-01-02 15:04:05")) {
+					filtered = append(filtered, n)
 			}
 		}
 		m.filteredNodes = filtered

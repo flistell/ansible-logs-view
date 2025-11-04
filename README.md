@@ -29,7 +29,7 @@ A terminal user interface (TUI) for viewing and analyzing Ansible log files, bui
 
 2. Build the application:
    ```
-   go build -o ansible-log-view
+   go build -o ansible-log-view ./cmd/ansible-logs-view
    ```
 
 ## Usage
@@ -37,6 +37,11 @@ A terminal user interface (TUI) for viewing and analyzing Ansible log files, bui
 Run the application with an Ansible log file as an argument:
 ```
 ./ansible-log-view /path/to/ansible-log-file.log
+```
+
+Or run with debug mode enabled:
+```
+./ansible-log-view --debug /path/to/ansible-log-file.log
 ```
 
 ### Keyboard Controls
@@ -74,28 +79,61 @@ The application now creates a `debug.log` file that contains detailed informatio
 - Path
 - Start time
 - Diff information
-- First 100 characters of RawText
+- First 1000 characters of RawText
+
+To enable debug logging, run the application with the `--debug` flag:
+```
+./ansible-log-view --debug /path/to/ansible-log-file.log
+```
 
 ## Development
 
 ### Dependencies
 
-- Go 1.16+
+- Go 1.25.3+
 - Bubbletea v1.3.10
 - Bubbles v0.21.0
 
 ### Project Structure
 
-- `main.go` : Entry point of the application
-- `parser.go` : Parses Ansible log files and extracts tasks
-- `task.go` : Defines the Task struct
-- `tui.go` : Implements the terminal user interface
+```
+ansible-logs-tui/
+├── .gemini-env
+├── .gitignore
+├── ansible-sample.out
+├── Dockerfile-glibc-2.28
+├── GEMINI-REVIEW.md
+├── go.mod
+├── go.sum
+├── QWEN.md
+├── README.md
+├── .aider.tags.cache.v4/
+├── .git/
+├── .github/
+├── cmd/
+│   ├── ansible-logs-view/
+│   │   ├── main.go              # Application entry point
+│   │   └── ...
+│   └── tui-poc/
+│       ├── itemreader.go
+│       └── main.go              # Proof of concept TUI (not the main app)
+├── internal/
+│   └── app/
+│       ├── logger.go            # Logging setup
+│       ├── parser_test.go       # Parser tests
+│       ├── parser.go            # Log file parsing logic
+│       ├── task.go              # Task data structure
+│       └── tui.go               # Terminal user interface implementation
+└── testdata/
+    ├── sample.log
+    └── testitems.txt
+```
 
 ### Building
 
 To build the application:
 ```
-go build -o ansible-log-view
+go build -o ansible-log-view ./cmd/ansible-logs-view
 ```
 
 ### Running Tests
@@ -104,6 +142,61 @@ To run tests:
 ```
 go test ./...
 ```
+
+### Key Components
+
+#### 1. Log Parser (`internal/app/parser.go`)
+- Parses Ansible log files to extract individual tasks
+- Extracts task metadata including:
+  - Task ID
+  - Description
+  - Start time
+  - Status (ok, changed, skipping, failed)
+  - Host
+  - Path
+  - Diff information
+  - Raw task text from the log file
+- Debug logging: Creates debug.log file with detailed information about each parsed task
+
+#### 2. Data Model (`internal/app/task.go`)
+- Defines the `Task` struct to represent parsed tasks
+- Contains all relevant task information for display including diff data and raw task text
+
+#### 3. Logger (`internal/app/logger.go`)
+- Centralized logging implementation for debug output
+- Manages debug log file creation and writing
+- Thread-safe logger initialization
+
+#### 4. Terminal UI (`internal/app/tui.go`)
+- Implements a scrollable list view with viewport-based scrolling
+- Provides dual-panel display:
+  - **Task List Panel**: Shows all tasks in a scrollable list with color-coded status indicators
+  - **Details Panel**: Displays full raw task text for expanded tasks
+- Details panel properties:
+  - Fixed height to 1/3 of the screen
+  - Fixed width to full screen width
+  - Content wraps if lines are too long
+  - Scrollable with PgUp/PgDn keys
+- Provides intuitive keyboard navigation:
+  - Arrow keys for navigation
+  - Enter/Space to expand/collapse tasks and show full raw task text in separate panel
+  - PgUp/PgDn to scroll details panel when visible
+  - g/G for top/bottom navigation
+  - `/` for filtering tasks
+  - Q/Ctrl+C to quit
+- Filtering capability to search tasks by description, status, date, host, path, or diff content
+- Color-coded status indicators for quick visual identification
+
+#### 5. Main Application (`cmd/ansible-logs-view/main.go`)
+- Handles command-line argument parsing
+- Initializes the parser and TUI components
+- Manages the application lifecycle
+- Supports a `--debug` flag to enable debug logging
+
+#### 6. Parser Tests (`internal/app/parser_test.go`)
+- Contains integration-style tests for the parser
+- Verifies that the parser correctly extracts task information
+- Tests against sample log files to ensure correctness
 
 ## Technical Details
 
@@ -115,6 +208,7 @@ Through careful analysis of the Ansible log file, the following patterns were id
 - Task execution status is indicated by lines like `ok:`, `changed:`, `skipping:`, or `failed:`
 - Timestamps follow the format: `DayOfWeek Day Month Year HH:MM:SS`
 - Diff information appears in sections starting with `--- before:`
+- Tasks with changes include detailed diff output showing before/after comparisons
 
 ### UI/UX Design Decisions
 

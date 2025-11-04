@@ -47,6 +47,7 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 	changedRegex := regexp.MustCompile(`^changed: \[(.*?)\]`)
 	skippingRegex := regexp.MustCompile(`^skipping: \[(.*?)\]`)
 	failedRegex := regexp.MustCompile(`^failed: \[(.*?)\]`)
+	fatalRegex := regexp.MustCompile(`^fatal: \[(.*?)\]`)
 
 	// Diff regexes
 	diffStartRegex := regexp.MustCompile(`^--- before:`)
@@ -125,7 +126,7 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 			// End of diff section when we hit a blank line, task separator, or status line
 			if line == "" || strings.HasPrefix(line, "TASK [") ||
 				strings.HasPrefix(line, "ok:") || strings.HasPrefix(line, "changed:") ||
-				strings.HasPrefix(line, "skipping:") || strings.HasPrefix(line, "failed:") {
+				strings.HasPrefix(line, "skipping:") || strings.HasPrefix(line, "failed:") || strings.HasPrefix(line, "fatal:") {
 				// Save the diff to the current task
 				if len(diffLines) > 0 {
 					if currentTask.Diff != "" {
@@ -205,6 +206,12 @@ func (p *LogParser) ParseFile(filename string) ([]Task, error) {
 
 		if matches := failedRegex.FindStringSubmatch(line); len(matches) > 1 {
 			currentTask.Status = "failed"
+			currentTask.Host = matches[1]
+			continue
+		}
+
+		if matches := fatalRegex.FindStringSubmatch(line); len(matches) > 1 {
+			currentTask.Status = "fatal"
 			currentTask.Host = matches[1]
 			continue
 		}
