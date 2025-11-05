@@ -98,18 +98,8 @@ To enable debug logging, run the application with the `--debug` flag:
 
 ```
 ansible-logs-tui/
-├── .gemini-env
-├── .gitignore
-├── ansible-sample.out
-├── Dockerfile-glibc-2.28
-├── GEMINI-REVIEW.md
 ├── go.mod
 ├── go.sum
-├── QWEN.md
-├── README.md
-├── .aider.tags.cache.v4/
-├── .git/
-├── .github/
 ├── cmd/
 │   ├── ansible-logs-view/
 │   │   ├── main.go              # Application entry point
@@ -135,6 +125,8 @@ To build the application:
 ```
 go build -o ansible-log-view ./cmd/ansible-logs-view
 ```
+
+You can build the tool for an older RHEL/OL/Rockylinux with glibc-2.28 using `./build-glibc-2.28.sh`. To run this script you need `podman`. It will download a rockylinux:8 image, build the tool there, spin a container pull the compiled binary to your host machine.
 
 ### Running Tests
 

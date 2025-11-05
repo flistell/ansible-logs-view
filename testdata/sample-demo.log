@@ -1,0 +1,67 @@
+PLAY [Provision web servers] ***************************************************
+
+TASK [Gathering Facts] *********************************************************
+task path: /home/user/playbooks/webserver.yml:2
+Tuesday 28 October 2025  14:20:32 +0000 (0:00:00.084)       0:00:00.084 ******
+ok: [web01.example.com]
+ok: [web02.example.com]
+
+TASK [Ensure apt cache is updated] *********************************************
+task path: /home/user/playbooks/webserver.yml:6
+Tuesday 28 October 2025  14:20:33 +0000 (0:00:01.762)       0:00:01.846 ******
+changed: [web01.example.com] => {"changed": true, "msg": "APT Cache updated"}
+changed: [web02.example.com] => {"changed": true, "msg": "APT Cache updated"}
+
+TASK [Install nginx package] ***************************************************
+task path: /home/user/playbooks/webserver.yml:10
+Tuesday 28 October 2025  14:20:38 +0000 (0:00:05.231)       0:00:07.077 ******
+changed: [web01.example.com] => {"changed": true, "name": "nginx", "state": "present"}
+changed: [web02.example.com] => {"changed": true, "name": "nginx", "state": "present"}
+
+TASK [Enable nginx service] ****************************************************
+task path: /home/user/playbooks/webserver.yml:14
+Tuesday 28 October 2025  14:20:45 +0000 (0:00:07.194)       0:00:14.272 ******
+ok: [web01.example.com] => {"changed": false, "enabled": true, "name": "nginx", "state": "started"}
+ok: [web02.example.com] => {"changed": false, "enabled": true, "name": "nginx", "state": "started"}
+
+TASK [Configure nginx virtual host] ********************************************
+task path: /home/user/playbooks/webserver.yml:18
+Tuesday 28 October 2025  14:20:47 +0000 (0:00:02.153)       0:00:16.425 ******
+changed: [web01.example.com] => {"changed": true, "checksum": "a1b2c3d4e5f6", "dest": "/etc/nginx/sites-available/webhost.conf"}
+changed: [web02.example.com] => {"changed": true, "checksum": "a1b2c3d4e5f6", "dest": "/etc/nginx/sites-available/webhost.conf"}
+
+TASK [Enable nginx site] *******************************************************
+task path: /home/user/playbooks/webserver.yml:22
+Tuesday 28 October 2025  14:20:52 +0000 (0:00:05.321)       0:00:21.746 ******
+changed: [web01.example.com] => {"changed": true, "dest": "/etc/nginx/sites-enabled/webhost.conf"}
+changed: [web02.example.com] => {"changed": true, "dest": "/etc/nginx/sites-enabled/webhost.conf"}
+
+TASK [Restart nginx service] ***************************************************
+task path: /home/user/playbooks/webserver.yml:26
+Tuesday 28 October 2025  14:20:55 +0000 (0:00:03.782)       0:00:25.528 ******
+changed: [web01.example.com] => {"changed": true, "name": "nginx", "state": "restarted"}
+changed: [web02.example.com] => {"changed": true, "name": "nginx", "state": "restarted"}
+
+TASK [Check nginx status] ******************************************************
+task path: /home/user/playbooks/webserver.yml:30
+Tuesday 28 October 2025  14:21:01 +0000 (0:00:06.145)       0:00:31.673 ******
+ok: [web01.example.com] => {"changed": false, "name": "nginx", "status": "running"}
+ok: [web02.example.com] => {"changed": false, "name": "nginx", "status": "running"}
+
+TASK [skipping : Verify ssl certificate] ***************************************
+task path: /home/user/playbooks/webserver.yml:34
+Tuesday 28 October 2025  14:21:03 +0000 (0:00:02.089)       0:00:33.762 ******
+skipping: [web01.example.com] => {"skip_reason": "Conditional check failed"}
+skipping: [web02.example.com] => {"skip_reason": "Conditional check failed"}
+
+TASK [Generate SSL certificate] ************************************************
+task path: /home/user/playbooks/webserver.yml:38
+Tuesday 28 October 2025  14:21:04 +0000 (0:00:01.132)       0:00:34.895 ******
+fatal: [web01.example.com]: FAILED! => {"changed": false, "msg": "Error generating certificate: Could not reach CA server"}
+...ignoring
+fatal: [web02.example.com]: FAILED! => {"changed": false, "msg": "Error generating certificate: Could not reach CA server"}
+...ignoring
+
+PLAY RECAP *********************************************************************
+web01.example.com          : ok=6    changed=5    unreachable=0    failed=1    skipped=1   
+web02.example.com          : ok=6    changed=5    unreachable=0    failed=1    skipped=1   

@@ -47,8 +47,7 @@ var (
 	detailsPanelStyle = lipgloss.NewStyle().
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.Color("#25A065")).
-				Padding(1, 2).
-				Height(10) // Fixed height for details panel
+				Padding(1, 2)
 
 	detailsTitleStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFFDF5")).
@@ -352,29 +351,39 @@ func (m *Model) updateViewports() {
 	const (
 		headerHeight      = 2
 		helpHeight        = 1
-		detailsHeight     = 15
+		detailsMinHeight  = 15
 		minNodesHeight    = 3
 		horizontalPadding = 4
 	)
 
 	// Calculate available space
 	debugLog.Printf("updateViewports() - Calculating viewports with expandedNodeCount: %d", m.expandedNodeCount)
-	remainingHeight := m.height - headerHeight - helpHeight - detailsHeight - 4
-	if remainingHeight < minNodesHeight {
-		remainingHeight = minNodesHeight
+	
+	// Calculate base available height
+	baseHeight := m.height - headerHeight - helpHeight - 4
+	
+	// Details panel height - either minimum or 1/3 of screen (whichever is smaller)
+	detailsHeight := detailsMinHeight
+	if baseHeight/3 > detailsMinHeight {
+		detailsHeight = baseHeight / 3
+	}
+	
+	// Calculate space for nodes viewport
+	nodesViewportHeight := baseHeight - detailsHeight
+	if nodesViewportHeight < minNodesHeight {
+		nodesViewportHeight = minNodesHeight
+		// If we need to shrink details to accommodate minimum node height
+		detailsHeight = baseHeight - minNodesHeight
+		if detailsHeight < 3 { // Minimum for details
+			detailsHeight = 3
+			nodesViewportHeight = baseHeight - detailsHeight
+		}
 	}
 
-	// Render node list to get its height
+	// Render node list to get content
 	nodeList := strings.TrimSpace(m.renderNodeList())
 	if nodeList == "" {
 		nodeList = "No nodes available."
-	}
-	nodeListHeight := strings.Count(nodeList, "\n") + 1
-
-	// Adjust nodesViewport height
-	nodesViewportHeight := remainingHeight
-	if nodeListHeight < remainingHeight {
-		nodesViewportHeight = nodeListHeight
 	}
 
 	// Debug logging: viewport sizes
@@ -488,22 +497,69 @@ func (m Model) View() string {
 		Render("Ansible Logs TUI")
 
 	// Build main content area: optional filter input, nodes viewport, details panel, help
-	var sections []string
+	var mainSections []string
 	if m.showingFilter {
 		// show filter input above the node list
-		sections = append(sections, m.filterInput.View())
+		mainSections = append(mainSections, m.filterInput.View())
 	}
-	sections = append(sections, m.nodesViewport.View())
-	sections = append(sections, m.renderDetailsPanel())
-	sections = append(sections, m.renderHelpLine())
-
-	mainContent := lipgloss.JoinVertical(lipgloss.Left, sections...)
+	
+	// Add nodes viewport
+	mainSections = append(mainSections, m.nodesViewport.View())
+	
+	// Add details panel and help text as a separate section to anchor to bottom
+	bottomSection := lipgloss.JoinVertical(lipgloss.Left, 
+		m.renderDetailsPanel(),
+		m.renderHelpLine(),
+	)
+	
+	// Calculate how much vertical space is available for the main content
+	// after header and padding are accounted for
+	headerHeight := lipgloss.Height(header)
+	
+	// Calculate padding height (appStyle includes padding)
+	availableHeight := m.height - headerHeight - 4 // account for appStyle padding
+	
+	// Calculate the height of the bottom section
+	bottomHeight := lipgloss.Height(bottomSection)
+	
+	// Calculate the height available for the main sections
+	var mainSectionsContent string
+	if len(mainSections) > 0 {
+		// Join the main sections together
+		mainContent := lipgloss.JoinVertical(lipgloss.Left, mainSections...)
+		mainContentHeight := lipgloss.Height(mainContent)
+		
+		// If the main content is smaller than available space, 
+		// we need to add padding to push the bottom section down
+		if mainContentHeight + bottomHeight < availableHeight {
+			// Expand main content to fill available space
+			expandedContentHeight := availableHeight - bottomHeight
+			// Ensure minimum height for main content
+			if expandedContentHeight < 3 {
+				expandedContentHeight = 3
+			}
+			
+			mainContentStyle := lipgloss.NewStyle().Height(expandedContentHeight).MaxHeight(expandedContentHeight)
+			mainSectionsContent = mainContentStyle.Render(mainContent)
+		} else {
+			mainSectionsContent = mainContent
+		}
+	} else {
+		// If there's no main content, just render the bottom section
+		mainSectionsContent = ""
+	}
+	
+	// Combine main content with the bottom section
+	fullMainContent := lipgloss.JoinVertical(lipgloss.Left, 
+		mainSectionsContent, 
+		bottomSection,
+	)
 
 	// Join header with padded content
 	finalView := lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
-		appStyle.Render(mainContent),
+		appStyle.Render(fullMainContent),
 	)
 
 	return finalView

@@ -6,3 +6,4 @@ debug.log
 *.old
 *.zip
 ansible-sample.out
+.qwenignore
