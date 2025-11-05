@@ -9,7 +9,8 @@ IMAGE_NAME="ansible-logs-builder"
 CONTAINER_NAME="ansible-logs-container"
 BINARY_NAME="ansible-logs-view-glibc-2.28"
 DOCKERFILE="Dockerfile-glibc-2.28"
-OUTPUT_DIR="."
+OUTPUT_DIR="./build"
+mkdir "$OUTPUT_DIR" 2>/dev/null
 
 echo "Building the $BINARY_NAME binary using podman..."
 

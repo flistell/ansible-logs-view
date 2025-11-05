@@ -1,5 +1,4 @@
-ansible-logs-view
-ansible-logs-view-glibc-2.28
+build
 debug.log
 .aider*
 .qwen
