@@ -24,24 +24,24 @@ A terminal user interface (TUI) for viewing and analyzing Ansible log files, bui
 1. Clone the repository:
    ```
    git clone <repository-url>
-   cd ansible-logs-tui
+   cd ansible-logs-view
    ```
 
 2. Build the application:
    ```
-   go build -o ansible-log-view ./cmd/ansible-logs-view
+   go build -o ansible-logs-view ./cmd/ansible-logs-view
    ```
 
 ## Usage
 
 Run the application with an Ansible log file as an argument:
 ```
-./ansible-log-view /path/to/ansible-log-file.log
+./ansible-logs-view /path/to/ansible-log-file.log
 ```
 
 Or run with debug mode enabled:
 ```
-./ansible-log-view --debug /path/to/ansible-log-file.log
+./ansible-logs-view --debug /path/to/ansible-log-file.log
 ```
 
 ### Keyboard Controls
@@ -83,7 +83,7 @@ The application now creates a `debug.log` file that contains detailed informatio
 
 To enable debug logging, run the application with the `--debug` flag:
 ```
-./ansible-log-view --debug /path/to/ansible-log-file.log
+./ansible-logs-view --debug /path/to/ansible-log-file.log
 ```
 
 ## Development
@@ -97,7 +97,7 @@ To enable debug logging, run the application with the `--debug` flag:
 ### Project Structure
 
 ```
-ansible-logs-tui/
+ansible-logs-view/
 ├── go.mod
 ├── go.sum
 ├── cmd/
@@ -123,7 +123,7 @@ ansible-logs-tui/
 
 To build the application:
 ```
-go build -o ansible-log-view ./cmd/ansible-logs-view
+go build -o ansible-logs-view ./cmd/ansible-logs-view
 ```
 
 You can build the tool for an older RHEL/OL/Rockylinux with glibc-2.28 using `./build-glibc-2.28.sh`. To run this script you need `podman`. It will download a rockylinux:8 image, build the tool there, spin a container pull the compiled binary to your host machine.
