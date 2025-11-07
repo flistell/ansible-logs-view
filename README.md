@@ -29,8 +29,14 @@ A terminal user interface (TUI) for viewing and analyzing Ansible log files, bui
 
 2. Build the application:
    ```
-   go build -o ansible-logs-view ./cmd/ansible-logs-view
+   make build
    ```
+
+3. Build the application linked with older glic-2.28. This would require `podman` installed and working on the system.
+
+```
+   make build-glibc-2.28
+```
 
 ## Usage
 
