@@ -262,8 +262,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selected < len(m.flatNodes)-1 {
 				m.selected++
 				debugLog.Printf("Update() - Moving down, new selected index: %d", m.selected)
-				debugLog.Printf("Update() - Before adjust: selected: %d, Y offset: %d, Height: %d", m.selected,m.nodesViewport.YOffset, m.nodesViewport.Height)
-				if m.selected + (m.expandedNodeCount * m.expandedNodeSize) >= m.nodesViewport.YOffset+m.nodesViewport.Height {
+				debugLog.Printf("Update() - Before adjust: selected: %d, Y offset: %d, Height: %d", m.selected, m.nodesViewport.YOffset, m.nodesViewport.Height)
+				if m.selected+(m.expandedNodeCount*m.expandedNodeSize) >= m.nodesViewport.YOffset+m.nodesViewport.Height {
 					m.nodesViewport.SetYOffset(m.selected - m.nodesViewport.Height + (m.expandedNodeCount * m.expandedNodeSize) + 1)
 				}
 				debugLog.Printf("Update() - After adjust Y offset: %d, Height: %d", m.nodesViewport.YOffset, m.nodesViewport.Height)
@@ -281,7 +281,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateViewports()
 				m.selected = oldSelected
 				// Ensure selected node is visible after expand/collapse
-				if m.selected + (m.expandedNodeCount * m.expandedNodeSize) >= m.nodesViewport.YOffset+m.nodesViewport.Height {
+				if m.selected+(m.expandedNodeCount*m.expandedNodeSize) >= m.nodesViewport.YOffset+m.nodesViewport.Height {
 					m.nodesViewport.SetYOffset(m.selected - m.nodesViewport.Height + (m.expandedNodeCount * m.expandedNodeSize) + 1)
 				}
 			}
@@ -294,7 +294,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nodesViewport.GotoBottom()
 				m.selected = len(m.flatNodes) - 1
 				m.updateViewports()
-				if m.selected + (m.expandedNodeCount * m.expandedNodeSize) >= m.nodesViewport.YOffset+m.nodesViewport.Height {
+				if m.selected+(m.expandedNodeCount*m.expandedNodeSize) >= m.nodesViewport.YOffset+m.nodesViewport.Height {
 					m.nodesViewport.SetYOffset(m.selected - m.nodesViewport.Height + (m.expandedNodeCount * m.expandedNodeSize) + 1)
 				}
 			}
@@ -358,16 +358,16 @@ func (m *Model) updateViewports() {
 
 	// Calculate available space
 	debugLog.Printf("updateViewports() - Calculating viewports with expandedNodeCount: %d", m.expandedNodeCount)
-	
+
 	// Calculate base available height
 	baseHeight := m.height - headerHeight - helpHeight - 4
-	
+
 	// Details panel height - either minimum or 1/3 of screen (whichever is smaller)
 	detailsHeight := detailsMinHeight
 	if baseHeight/3 > detailsMinHeight {
 		detailsHeight = baseHeight / 3
 	}
-	
+
 	// Calculate space for nodes viewport
 	nodesViewportHeight := baseHeight - detailsHeight
 	if nodesViewportHeight < minNodesHeight {
@@ -464,9 +464,10 @@ func (m *Model) updateDetailsViewportContent() {
 	selectedNode := m.flatNodes[m.selected].node
 
 	// Create content with title
+	replacer := strings.NewReplacer("\\n", "\n", "\\t", "\t", "\\\"", "\"")
 	detailsContent := fmt.Sprintf("Item: %s\n\n%s",
 		selectedNode.Name,
-		selectedNode.Description)
+		replacer.Replace(selectedNode.Description))
 
 	// Calculate the available width for content, accounting for borders and padding
 	contentWidth := m.detailsViewport.Width - 4 // -4 for left and right padding/borders
@@ -502,43 +503,43 @@ func (m Model) View() string {
 		// show filter input above the node list
 		mainSections = append(mainSections, m.filterInput.View())
 	}
-	
+
 	// Add nodes viewport
 	mainSections = append(mainSections, m.nodesViewport.View())
-	
+
 	// Add details panel and help text as a separate section to anchor to bottom
-	bottomSection := lipgloss.JoinVertical(lipgloss.Left, 
+	bottomSection := lipgloss.JoinVertical(lipgloss.Left,
 		m.renderDetailsPanel(),
 		m.renderHelpLine(),
 	)
-	
+
 	// Calculate how much vertical space is available for the main content
 	// after header and padding are accounted for
 	headerHeight := lipgloss.Height(header)
-	
+
 	// Calculate padding height (appStyle includes padding)
 	availableHeight := m.height - headerHeight - 4 // account for appStyle padding
-	
+
 	// Calculate the height of the bottom section
 	bottomHeight := lipgloss.Height(bottomSection)
-	
+
 	// Calculate the height available for the main sections
 	var mainSectionsContent string
 	if len(mainSections) > 0 {
 		// Join the main sections together
 		mainContent := lipgloss.JoinVertical(lipgloss.Left, mainSections...)
 		mainContentHeight := lipgloss.Height(mainContent)
-		
-		// If the main content is smaller than available space, 
+
+		// If the main content is smaller than available space,
 		// we need to add padding to push the bottom section down
-		if mainContentHeight + bottomHeight < availableHeight {
+		if mainContentHeight+bottomHeight < availableHeight {
 			// Expand main content to fill available space
 			expandedContentHeight := availableHeight - bottomHeight
 			// Ensure minimum height for main content
 			if expandedContentHeight < 3 {
 				expandedContentHeight = 3
 			}
-			
+
 			mainContentStyle := lipgloss.NewStyle().Height(expandedContentHeight).MaxHeight(expandedContentHeight)
 			mainSectionsContent = mainContentStyle.Render(mainContent)
 		} else {
@@ -548,10 +549,10 @@ func (m Model) View() string {
 		// If there's no main content, just render the bottom section
 		mainSectionsContent = ""
 	}
-	
+
 	// Combine main content with the bottom section
-	fullMainContent := lipgloss.JoinVertical(lipgloss.Left, 
-		mainSectionsContent, 
+	fullMainContent := lipgloss.JoinVertical(lipgloss.Left,
+		mainSectionsContent,
 		bottomSection,
 	)
 
@@ -643,7 +644,6 @@ func (m Model) renderDetailsPanel() string {
 	return detailsPanelStyle.Width(m.width - 4).Render(panelContent)
 }
 
-
 func (m *Model) applyFilter(term string) {
 	term = strings.ToLower(term)
 	if term == "" {
@@ -659,9 +659,9 @@ func (m *Model) applyFilter(term string) {
 				strings.Contains(n.StartTime.Format("2006-01-02 15:04:05"), term) ||
 				strings.Contains(n.StartTime.Format("2006-01-02"), term) ||
 				strings.Contains(n.StartTime.Format("15:04:05"), term) {
-					filtered = append(filtered, n)
-				}
+				filtered = append(filtered, n)
 			}
+		}
 		m.filteredNodes = filtered
 	}
 	m.rebuildFlatNodes()
@@ -683,12 +683,12 @@ func (m *Model) applyFuzzyFilter(term string) {
 	} else {
 		var filtered []TreeNode
 		for _, n := range m.nodes {
-			if fuzzyMatch(term, n.Name) || 
-				fuzzyMatch(term, n.Status) || 
-				fuzzyMatch(term, n.Host) || 
-				fuzzyMatch(term, n.Path) || 
+			if fuzzyMatch(term, n.Name) ||
+				fuzzyMatch(term, n.Status) ||
+				fuzzyMatch(term, n.Host) ||
+				fuzzyMatch(term, n.Path) ||
 				fuzzyMatch(term, n.StartTime.Format("2006-01-02 15:04:05")) {
-					filtered = append(filtered, n)
+				filtered = append(filtered, n)
 			}
 		}
 		m.filteredNodes = filtered
